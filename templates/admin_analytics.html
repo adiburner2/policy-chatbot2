@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>Analytics Dashboard</h2>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User Query</th>
+                    <th>AI Response</th>
+                    <th>Feedback Score</th>
+                    <th>Feedback Comment</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for interaction in interactions %}
+                <tr>
+                    <td>{{ interaction[0] }}</td>
+                    <td>{{ interaction[1] }}</td>
+                    <td>{{ interaction[2] or 'N/A' }}</td>
+                    <td>{{ interaction[3] or 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/admin/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
