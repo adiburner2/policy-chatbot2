@@ -31,7 +31,9 @@ idna==3.10
 itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.10.0
+Markdown==3.8
 MarkupSafe==3.0.2
+ollama==0.5.1
 openai==1.82.1
 packaging==25.0
 pdfminer.six==20221105
