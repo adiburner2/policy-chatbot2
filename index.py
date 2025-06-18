@@ -11,6 +11,7 @@ import ollama  # Make sure this is imported
 import uuid    # To generate unique IDs for responses
 import traceback # For better error logging
 import markdown  # To convert AI response to HTML
+import time
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key')
@@ -54,6 +55,18 @@ def init_db():
             feedback_comment TEXT,
             response_id TEXT
         )''')
+        # --- Add test users if not present ---
+        c.execute("SELECT COUNT(*) FROM users")
+        if c.fetchone()[0] == 0:
+            c.execute(
+                "INSERT INTO users (username, password, role, login_timestamp, failed_attempts) VALUES (?, ?, ?, ?, ?)",
+                ('admin', hash_password('admin123'), 'admin', datetime.now(), 0)
+            )
+            c.execute(
+                "INSERT INTO users (username, password, role, login_timestamp, failed_attempts) VALUES (?, ?, ?, ?, ?)",
+                ('client', hash_password('client123'), 'client', datetime.now(), 0)
+            )
+            conn.commit()
         conn.commit()
 
 @app.route('/')
@@ -63,6 +76,11 @@ def home():
 def hash_password(password):
     import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+@app.route('/samplepolicy')
+def sample_policy():
+    return render_template('samplepolicy.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -163,73 +181,117 @@ def client_api_key():
 @app.route('/chat', methods=['GET', 'POST'])
 def handle_chat():
     if request.method == 'GET':
-        # Just show the chat page on GET request
         return render_template('chat.html')
 
-    # Handle POST request (when user sends a message)
     if request.method == 'POST':
         query = request.form.get('query')
+        url = request.form.get('url')  # Get the URL from the form
+
         if not query:
             return jsonify({'error': 'Query cannot be empty.'}), 400
 
         try:
-            # 1. Define the System Prompt to guide AI behavior
-            system_prompt = """
-            You are 'Policy Insight', a specialized AI assistant. Your main goal is to help users understand complex documents like privacy policies, terms of service, and data protection regulations.
+            page_context = ""
+            if url:
+                try:
+                    # Fetch the content from the URL
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+                    page_response = requests.get(url, headers=headers, timeout=10)
+                    page_response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
-            Follow these rules strictly:
-            1.  **Simplify, Don't Advise**: Explain legal jargon and complex sentences in simple, clear language. Do NOT give legal advice. Always include a disclaimer that you are an AI and not a substitute for a lawyer.
-            2.  **Stay on Topic**: Only answer questions related to policies, user rights, data privacy, and terms of service. If a user asks something off-topic (e.g., "what's the weather?"), politely decline and steer them back to your purpose.
-            3.  **Be Concise**: Provide clear and direct answers. Use formatting like lists (using '-') and bold text (using '**') to make the information easy to digest.
-            4.  **Be Friendly and Professional**: Maintain a helpful and approachable tone.
-            """
+                    # Parse the HTML and extract text
+                    soup = BeautifulSoup(page_response.text, 'html.parser')
+                    # Get all text from the body, which is usually where the main content is
+                    if soup.body:
+                        page_context = soup.body.get_text(separator=' ', strip=True)
+                    else:
+                        page_context = soup.get_text(separator=' ', strip=True)
+                    
+                    if not page_context:
+                         return jsonify({'error': f"Could not extract any text from the URL: {url}"}), 400
 
-            # 2. Call the Ollama API (this waits for the full response)
+                except requests.RequestException as e:
+                    return jsonify({'error': f"Failed to fetch content from URL: {e}"}), 400
+            
+            # Construct the prompt for the AI
+            system_prompt = "You are 'Policy Insight', a helpful AI assistant. Your goal is to simplify complex legal documents for users."
+            
+            # If context is provided, instruct the AI to use it
+            if page_context:
+                user_message_content = f"""
+                Here is the content of the policy from the provided URL:
+                ---
+                {page_context}
+                ---
+                Based ONLY on the text above, please answer the following question: {query}
+                
+                If the answer is not in the text, say 'I could not find that information in the provided document.'
+                """
+                system_prompt += " Answer the user's question based strictly on the provided context."
+            else:
+                # If no URL, handle as a general question
+                user_message_content = query
+                system_prompt += " Your task is to answer general questions about privacy policies, terms of service, and data protection."
+
+
+            start_time = time.time()
             response = ollama.chat(
-                model='gemma3:4b',  # Models here
+                model='phi3:mini',
                 messages=[
                     {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': query},
-                ],
-                # stream=False is the default.
-                # Ensures entire message at once.
+                    {'role': 'user', 'content': user_message_content},
+                ]
             )
-            
-            # The actual text from the AI is in this part of the response
-            ai_response_text = response['message']['content']
-            
-            # Convert markdown response to HTML for proper rendering in the browser
-            html_response = markdown.markdown(ai_response_text)
+            end_time = time.time()
+            duration = end_time - start_time
 
-            # 3. Generate a unique ID for this specific interaction
+            ai_response_text = response['message']['content']
+            html_response = markdown.markdown(ai_response_text)
             response_id = str(uuid.uuid4())
 
-            # 4. Save the interaction to the database
             with sqlite3.connect(DATABASE) as conn:
                 c = conn.cursor()
-                # Store the raw text response, not the HTML
                 c.execute(
                     "INSERT INTO interactions (user_query, ai_response, timestamp, response_id) VALUES (?, ?, ?, ?)",
                     (query, ai_response_text, datetime.now(), response_id)
                 )
                 conn.commit()
 
-            # 5. Send the response back to the frontend
             return jsonify({
                 'response': html_response,
-                'response_id': response_id
+                'response_id': response_id,
+                'duration': f"{duration:.2f}"
             })
 
-        except ollama.ResponseError as e:
-            traceback.print_exc()
-            error_message = f"An error occurred with the AI model: {e.error}"
-            if "model 'gemma3:4b' not found" in str(e.error):
-                error_message = "The chat model 'gemma3:4b' is not available. Please make sure Ollama is running and the model is installed."
-            return jsonify({'error': error_message}), 500
         except Exception as e:
             traceback.print_exc()
-            return jsonify({'error': 'An unexpected error occurred on the server. Please try again later.'}), 500
+            return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
+
+@app.route('/feedback', methods=['POST'])
+def handle_feedback():
+    try:
+        score = request.form.get('score')
+        comment = request.form.get('comment')
+        response_id = request.form.get('response_id')
+
+        if not score or not response_id:
+            return jsonify({'error': 'Score and response ID are required.'}), 400
+
+        with sqlite3.connect(DATABASE) as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE interactions SET feedback_score = ?, feedback_comment = ? WHERE response_id = ?",
+                (score, comment, response_id)
+            )
+            conn.commit()
+            if c.rowcount == 0:
+                return jsonify({'error': 'Invalid response ID.'}), 404
+        return jsonify({'message': 'Feedback received successfully!'})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': 'An internal server error occurred.'}), 500
 
 if __name__ == "__main__":
-    init_db() # Initialize the database when the app starts
+    init_db()
     app.run(debug=True, port=5000)

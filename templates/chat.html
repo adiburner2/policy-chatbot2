@@ -79,7 +79,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
       <div class="container">
         <a class="navbar-brand" href="/">
-          <i class="fas fa-shield-alt"></i> Policy Chatbot
+          <i class="fas fa-shield-alt"></i> Policy Chatbot Test Interface
         </a>
         <button
           class="navbar-toggler"
@@ -128,14 +128,12 @@
                   <strong><i class="fas fa-robot"></i> Assistant:</strong>
                 </p>
                 <p>
-                  Welcome! I'm here to help you understand privacy policies, terms of service, and data protection topics.
+                  Welcome! I can answer general questions about policies, or you can provide a URL below to ask questions about a specific page.
                 </p>
                 <p><strong>Try asking:</strong></p>
                 <ul>
                   <li>"What personal data do websites typically collect?"</li>
                   <li>"What are my privacy rights?"</li>
-                  <li>"How can I protect my personal information online?"</li>
-                  <li>"What should I look for in a privacy policy?"</li>
                 </ul>
               </div>
             </div>
@@ -148,13 +146,19 @@
           </div>
 
           <form id="chat-form" class="mt-3">
+            <!-- NEW URL INPUT FIELD -->
+            <div class="input-group mb-3">
+              <span class="input-group-text" id="url-addon"><i class="fas fa-link"></i></span>
+              <input type="url" class="form-control" id="url-input" name="url" placeholder="Enter URL of a policy page to analyze (optional)">
+            </div>
+            
             <div class="input-group">
               <input
                 type="text"
                 class="form-control"
                 id="query"
                 name="query"
-                placeholder="Ask about privacy policies, data protection, user rights..."
+                placeholder="Ask your question here..."
                 required
               />
               <button type="submit" class="btn btn-primary" id="send-btn">
@@ -213,9 +217,15 @@
           e.preventDefault();
 
           const query = document.getElementById("query").value;
+          const url = document.getElementById("url-input").value; // Get URL value
           const sendBtn = document.getElementById("send-btn");
           const loadingSpinner = document.getElementById("loading-spinner");
           const chatMessages = document.getElementById("chat-messages");
+
+          // Hide feedback section for new query
+          document.getElementById("feedback-section").style.display = "none";
+          document.getElementById("feedback-score").value = "";
+          document.getElementById("feedback-comment").value = "";
 
           // Show loading state
           sendBtn.disabled = true;
@@ -231,16 +241,22 @@
           chatMessages.scrollTop = chatMessages.scrollHeight;
 
           try {
+            // UPDATED: Use URLSearchParams to send both query and url
+            const formData = new URLSearchParams();
+            formData.append('query', query);
+            if (url) {
+                formData.append('url', url);
+            }
+
             const response = await fetch("/chat", {
               method: "POST",
               headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: `query=${encodeURIComponent(query)}`,
+              body: formData,
             });
 
             if (!response.ok) {
-              throw new Error(
-                `HTTP ${response.status}: ${response.statusText}`
-              );
+              const errorData = await response.json().catch(() => ({error: `HTTP ${response.status}: ${response.statusText}`}));
+              throw new Error(errorData.error || `HTTP ${response.status}`);
             }
 
             const data = await response.json();
@@ -257,34 +273,25 @@
                   <i class="fas fa-exclamation-triangle"></i> ${data.error}
                 </div>
               `;
-
-              if (data.suggestions && data.suggestions.length > 0) {
-                errorHtml += `
-                  <div class="suggestion-list">
-                    <strong><i class="fas fa-lightbulb"></i> Suggestions:</strong>
-                    <ul class="mt-2">
-                      ${data.suggestions
-                        .map((suggestion) => `<li>${suggestion}</li>`)
-                        .join("")}
-                    </ul>
-                  </div>
-                `;
-              }
-
-              if (data.fallback_message) {
-                errorHtml += `<p class="mt-2">${data.fallback_message}</p>`;
-              }
-
               errorDiv.innerHTML = errorHtml;
               chatMessages.appendChild(errorDiv);
             } else {
               // Handle successful response
               const botMessage = document.createElement("div");
               botMessage.className = "message bot-message";
+              
+              // Add the timer to the response
+              let timerHtml = '';
+              if (data.duration) {
+                  timerHtml = `<p class="text-muted small mt-2 mb-0" style="text-align: right;">
+                                 <i class="fas fa-clock"></i> Processed in ${data.duration} seconds
+                               </p>`;
+              }
 
               botMessage.innerHTML = `
                 <p><strong><i class="fas fa-robot"></i> Assistant:</strong></p>
                 <div>${data.response}</div>
+                ${timerHtml}
               `;
 
               chatMessages.appendChild(botMessage);
@@ -299,6 +306,8 @@
 
             // Clear form
             document.getElementById("query").value = "";
+            // Optionally clear the URL field after each request
+            // document.getElementById("url-input").value = ""; 
             chatMessages.scrollTop = chatMessages.scrollHeight;
             
           } catch (error) {
@@ -308,7 +317,7 @@
             errorDiv.innerHTML = `
               <p><strong><i class="fas fa-robot"></i> Assistant:</strong></p>
               <div class="error-message">
-                <i class="fas fa-exclamation-triangle"></i> Sorry, I'm having trouble connecting to the server. Please try again in a moment.
+                <i class="fas fa-exclamation-triangle"></i> ${error.message}
               </div>
             `;
             chatMessages.appendChild(errorDiv);
