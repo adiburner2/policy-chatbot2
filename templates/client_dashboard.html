@@ -1,18 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Client Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h2>Client Dashboard</h2>
-        <nav>
-            <a href="/client/api_key" class="btn btn-primary">Generate API Key</a>
-        </nav>
+{% extends "layout.html" %}
+
+{% block title %}Client Dashboard{% endblock %}
+
+{% block sidebar_links %}
+<li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('client_dashboard') }}"><i class="fas fa-tachometer-alt fa-fw"></i> Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('client_api_key') }}"><i class="fas fa-key fa-fw"></i> API Keys</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="#"><i class="fas fa-file-alt fa-fw"></i> My Documents</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Client Dashboard</h2>
+<p>Welcome, Client! Here you can manage your API integration and documents.</p>
+<!-- Placeholder for client-specific stats -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">API Usage</div>
+            <div class="card-body">
+                <p>API Calls Today: <strong>1,234</strong></p>
+                <p>Total Calls this Month: <strong>56,789</strong></p>
+                <p>Status: <span class="badge bg-success">Active</span></p>
+            </div>
+        </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Integration</div>
+            <div class="card-body">
+                <p>Get started with integrating the chatbot on your site.</p>
+                <a href="{{ url_for('client_api_key') }}" class="btn btn-primary">Get Your API Key</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,36 +1,141 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analytics</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h2>Analytics Dashboard</h2>
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>User Query</th>
-                    <th>AI Response</th>
-                    <th>Feedback Score</th>
-                    <th>Feedback Comment</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for interaction in interactions %}
-                <tr>
-                    <td>{{ interaction[0] }}</td>
-                    <td>{{ interaction[1] }}</td>
-                    <td>{{ interaction[2] or 'N/A' }}</td>
-                    <td>{{ interaction[3] or 'N/A' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <a href="/admin/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+{% extends "layout.html" %}
+
+{% block title %}Analytics{% endblock %}
+
+{% block sidebar_links %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-home fa-fw"></i> Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_documents') }}"><i class="fas fa-file-alt fa-fw"></i> Documents</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('admin_analytics') }}"><i class="fas fa-chart-line fa-fw"></i> Analytics</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_settings') }}"><i class="fas fa-cog fa-fw"></i> Settings</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Analytics & Reports</h2>
+    <!-- This button is a placeholder for future functionality -->
+    <button class="btn btn-success" disabled><i class="fas fa-file-csv"></i> Export to CSV</button>
+</div>
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="card mb-4">
+            <div class="card-header"><i class="fas fa-thumbs-up"></i> Feedback Distribution</div>
+            <div class="card-body">
+                <canvas id="feedbackChart"></canvas>
+            </div>
+        </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+    <div class="col-md-7">
+        <div class="card mb-4">
+            <div class="card-header"><i class="fas fa-tachometer-alt"></i> Response Time Analysis</div>
+            <div class="card-body">
+                <h5>Average Response Time: <span class="text-primary">{{ '%.2f'|format(analytics.avg_response_time) }}s</span></h5>
+                <p class="mb-1">Fastest: <span class="text-success">{{ '%.2f'|format(analytics.min_response_time) }}s</span></p>
+                <p>Slowest: <span class="text-danger">{{ '%.2f'|format(analytics.max_response_time) }}s</span></p>
+            </div>
+        </div>
+        <div class="card mb-4">
+            <div class="card-header"><i class="fas fa-tags"></i> Popular Query Terms</div>
+            <div class="card-body">
+                <!-- This would be populated dynamically in a future update -->
+                <span class="badge bg-secondary">data privacy</span>
+                <span class="badge bg-secondary">delete account</span>
+                <span class="badge bg-secondary">cookies</span>
+                <span class="badge bg-secondary">GDPR</span>
+                <span class="badge bg-secondary">third party</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="fas fa-history"></i> Interaction Log</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User Query</th>
+                        <th>Feedback</th>
+                        <th>Comment</th>
+                        <th>Response Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for interaction in interactions %}
+                    <tr>
+                        <td>{{ interaction['timestamp'].split('.')[0] }}</td>
+                        <td>{{ interaction['user_query'][:80] }}{% if interaction['user_query']|length > 80 %}...{% endif %}</td>
+                        <td>
+                            {% if interaction['feedback_score'] == 1 %}
+                                <span class="text-success"><i class="fas fa-thumbs-up"></i> Liked</span>
+                            {% elif interaction['feedback_score'] == -1 %}
+                                <span class="text-danger"><i class="fas fa-thumbs-down"></i> Disliked</span>
+                            {% else %}
+                                <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ interaction['feedback_comment'] or 'No comment' }}</td>
+                        <td>
+                            {% if interaction['response_time_seconds'] %}
+                                {{ '%.2f'|format(interaction['response_time_seconds']) }}s
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center">No interactions yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Feedback Score Chart (Doughnut Chart)
+    const feedbackCtx = document.getElementById('feedbackChart').getContext('2d');
+    new Chart(feedbackCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Liked', 'Disliked', 'No Feedback'],
+            datasets: [{
+                label: 'Feedback',
+                data: [
+                    {{ analytics.feedback_counts.liked }},
+                    {{ analytics.feedback_counts.disliked }},
+                    {{ analytics.feedback_counts.no_rating }}
+                ],
+                backgroundColor: [
+                    '#198754', // Green for Liked
+                    '#dc3545', // Red for Disliked
+                    '#6c757d'  // Grey for No Feedback
+                ],
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

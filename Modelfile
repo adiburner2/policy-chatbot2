@@ -1,0 +1,6 @@
+# Inherit from the base model
+FROM phi3:mini
+
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER num_predict 400

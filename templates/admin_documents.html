@@ -1,20 +1,83 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h2>Admin Dashboard</h2>
-        <nav>
-            <a href="/admin/upload" class="btn btn-primary">Upload Document</a>
-            <a href="/admin/documents" class="btn btn-secondary">View Documents</a>
-            <a href="/admin/analytics" class="btn btn-info">Analytics</a>
-        </nav>
+{% extends "layout.html" %}
+
+{% block title %}Manage Documents{% endblock %}
+
+{% block sidebar_links %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-home fa-fw"></i> Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('admin_documents') }}"><i class="fas fa-file-alt fa-fw"></i> Documents</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_analytics') }}"><i class="fas fa-chart-line fa-fw"></i> Analytics</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_settings') }}"><i class="fas fa-cog fa-fw"></i> Settings</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Document Management</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+        <i class="fas fa-upload"></i> Upload New Document
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>File Name</th>
+                    <th>Type</th>
+                    <th>Size (KB)</th>
+                    <th>Date Added</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in documents %}
+                <tr>
+                    <td><i class="fas fa-file-{{ 'pdf' if doc[1] == 'pdf' else 'word' }} me-2"></i>{{ doc[0] }}</td>
+                    <td>{{ doc[1].upper() }}</td>
+                    <td>{{ '%.2f'|format(doc[2] / 1024) }}</td>
+                    <td>{{ doc[3].split('T')[0] }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center">No documents found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <!-- Pagination would go here -->
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Upload Document</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('admin_upload') }}" method="post" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <p>Select a PDF or DOCX file to upload to the knowledge base.</p>
+                    <input type="file" name="document" class="form-control" required accept=".pdf,.docx">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
