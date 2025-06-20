@@ -24,6 +24,10 @@
     background-color: #0056b3;
 }
 
+.highlighted-term:hover {
+    background-color: #ffeaa7;
+}
+
 #policy-chat-window {
     position: fixed;
     bottom: 100px;
@@ -97,4 +101,8 @@
     cursor: help;
     font-weight: 500;
     border-bottom: 1px dashed #ad8c00;
+}
+
+.tooltip-high-z {
+    z-index: 99999 !important;
 }

@@ -1,3 +1,26 @@
+// Fixed Widget CSS - Add tooltip z-index styles
+const tooltipStyles = `
+.tooltip-high-z {
+    z-index: 99999 !important;
+}
+.tooltip-high-z .tooltip-inner {
+    max-width: 300px;
+    text-align: left;
+}
+.bs-tooltip-top .tooltip-arrow::before,
+.bs-tooltip-auto[data-popper-placement^="top"] .tooltip-arrow::before {
+    border-top-color: var(--bs-tooltip-bg, #000) !important;
+}
+`;
+
+// Inject tooltip styles
+if (!document.getElementById('widget-tooltip-styles')) {
+    const styleElement = document.createElement('style');
+    styleElement.id = 'widget-tooltip-styles';
+    styleElement.textContent = tooltipStyles;
+    document.head.appendChild(styleElement);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Create and Inject Widget HTML into the page ---
     const widgetHtml = `
@@ -146,43 +169,78 @@ document.addEventListener('DOMContentLoaded', () => {
     function highlightTerms(element, glossary) {
         const terms = Object.keys(glossary).sort((a, b) => b.length - a.length);
         if (terms.length === 0) return;
+        
+        // Create regex with word boundaries
         const regex = new RegExp(`\\b(${terms.map(t => t.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})\\b`, 'gi');
         
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
         let nodesToProcess = [];
         while(walker.nextNode()) nodesToProcess.push(walker.currentNode);
-
+    
         nodesToProcess.forEach(node => {
             if (node.parentElement.closest('A, CODE, .highlighted-term')) return;
             
+            const originalText = node.nodeValue;
+            if (!regex.test(originalText)) return;
+            
             const fragment = document.createDocumentFragment();
             let lastIndex = 0;
-            node.nodeValue.replace(regex, (match, offset) => {
-                if (offset > lastIndex) {
-                    fragment.appendChild(document.createTextNode(node.nodeValue.substring(lastIndex, offset)));
+            let match;
+            
+            // Reset regex
+            regex.lastIndex = 0;
+            
+            while ((match = regex.exec(originalText)) !== null) {
+                // Add text before match
+                if (match.index > lastIndex) {
+                    fragment.appendChild(document.createTextNode(originalText.substring(lastIndex, match.index)));
                 }
+                
+                // Create highlighted span
                 const span = document.createElement('span');
                 span.className = 'highlighted-term';
-                span.textContent = match;
-                span.setAttribute('data-bs-toggle', 'tooltip');
-                span.setAttribute('data-bs-placement', 'top');
-                const definition = glossary[Object.keys(glossary).find(k => k.toLowerCase() === match.toLowerCase())] || 'Definition not found.';
-                span.setAttribute('title', definition);
+                span.textContent = match[0];
+                
+                // Find matching definition (case-insensitive)
+                const matchingKey = Object.keys(glossary).find(k => k.toLowerCase() === match[0].toLowerCase());
+                if (matchingKey) {
+                    span.setAttribute('data-bs-toggle', 'tooltip');
+                    span.setAttribute('data-bs-placement', 'top');
+                    span.setAttribute('title', glossary[matchingKey]);
+                }
+                
                 fragment.appendChild(span);
-                lastIndex = offset + match.length;
-            });
-            if (lastIndex < node.nodeValue.length) {
-                fragment.appendChild(document.createTextNode(node.nodeValue.substring(lastIndex)));
+                lastIndex = match.index + match[0].length;
             }
+            
+            // Add remaining text
+            if (lastIndex < originalText.length) {
+                fragment.appendChild(document.createTextNode(originalText.substring(lastIndex)));
+            }
+            
             if (fragment.hasChildNodes()) {
                 node.parentNode.replaceChild(fragment, node);
             }
         });
-
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl);
-        });
+    
+        // Initialize tooltips with high z-index
+        setTimeout(() => {
+            const tooltipElements = element.querySelectorAll('.highlighted-term[data-bs-toggle="tooltip"]');
+            tooltipElements.forEach(el => {
+                // Dispose existing tooltip if any
+                const existingTooltip = bootstrap.Tooltip.getInstance(el);
+                if (existingTooltip) {
+                    existingTooltip.dispose();
+                }
+                // Create new tooltip with custom z-index
+                new bootstrap.Tooltip(el, {
+                    trigger: 'hover focus',
+                    html: false,
+                    sanitize: true,
+                    customClass: 'tooltip-high-z'
+                });
+            });
+        }, 10);
     }
 
     function displayErrorMessage(errorText) {

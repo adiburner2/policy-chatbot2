@@ -340,40 +340,43 @@ def handle_chat():
     try:
         start_time = time.time()
         
-        # --- MODIFIED: More robust prompting for the LLM ---
+        # Fixed prompting logic
         if document_content:
-            # RAG (Retrieval-Augmented Generation) path for answering based on context
-            system_prompt = """
-            You are 'Policy Insight', an AI assistant. Your task is to analyze a given document and answer questions based ONLY on the text provided in that document.
-            - Analyze the "CONTEXT DOCUMENT" in the user's message.
-            - Answer the user's "QUESTION" using only information from the document.
-            - If the answer is not in the document, you MUST reply with the exact phrase: "I could not find the information in the provided document."
-            - Do not use any outside knowledge. Keep your answers concise and clear.
-            - Use simple Markdown for formatting (like **bolding** or lists). Do not provide legal advice.
-            """
-            user_message_content = f"""Please answer the question based only on the document provided below.
+            # Clean the document content and limit its size
+            clean_content = document_content.strip()[:6000]  # Limit to prevent token overflow
+            
+            system_prompt = """You are a helpful AI assistant that analyzes documents and answers questions based on their content.
 
-            CONTEXT DOCUMENT from {context_source}:
-            ---
-            {document_content[:8000]}
-            ---
+Instructions:
+- Answer the user's question using ONLY the information provided in the document
+- If the answer is not in the document, say "I cannot find this information in the provided document"
+- Be concise and accurate
+- Use simple markdown formatting for readability
+- Do not provide legal advice"""
 
-            QUESTION: "{query}"
-            """
+            user_message = f"""Based on the document content below, please answer this question: "{query}"
+
+Document content:
+{clean_content}
+
+Question: {query}"""
         else:
-            # General knowledge path when no document or URL is provided
-            system_prompt = """
-            You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.
-            Do NOT give legal advice. Keep answers concise and clear. Use markdown for formatting.
-            """
-            user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
-        # --- END OF MODIFICATION ---
+            # General knowledge path
+            system_prompt = """You are a helpful AI assistant that explains data privacy and policy concepts in simple terms.
+            
+Instructions:
+- Provide clear, concise explanations
+- Do not give legal advice
+- Use simple markdown formatting
+- Keep responses practical and helpful"""
+            
+            user_message = f"Please explain: {query}"
 
         response = ollama.chat(
             model='phi3:mini',
             messages=[
                 {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_message_content},
+                {'role': 'user', 'content': user_message},
             ],
         )
         
