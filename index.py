@@ -10,6 +10,9 @@ import markdown
 import time
 from collections import Counter
 import re
+import io
+import csv
+from flask import Response 
 
 # Document/Web Parsing Libraries
 import ollama
@@ -614,6 +617,52 @@ def handle_feedback():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': 'An internal server error occurred.'}), 500
+
+@app.route('/admin/analytics/export')
+def admin_analytics_export():
+    """
+    Generates and returns a CSV file of all chat interactions.
+    """
+    conn = get_db_connection()
+    interactions = conn.execute('SELECT * FROM interactions ORDER BY timestamp DESC').fetchall()
+    conn.close()
+
+    # io.StringIO to build the CSV in memory instead of writing to a physical file
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write the header row
+    header = [
+        'ID', 'User Query', 'AI Response', 'Timestamp', 
+        'Feedback Score (1=Like, -1=Dislike)', 'Feedback Comment', 
+        'Response ID', 'Response Time (s)'
+    ]
+    writer.writerow(header)
+
+    # Write the data rows
+    for row in interactions:
+        writer.writerow([
+            row['id'],
+            row['user_query'],
+            row['ai_response'],
+            row['timestamp'],
+            row['feedback_score'],
+            row['feedback_comment'],
+            row['response_id'],
+            row['response_time_seconds']
+        ])
+
+    # Move the "cursor" to the beginning of the memory-based file
+    output.seek(0)
+
+    # Create a Flask response object
+    return Response(
+        output,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename=policy_insight_interactions_{datetime.now().strftime('%Y-%m-%d')}.csv"}
+    )
+
+
 
 if __name__ == "__main__":
     init_db()
