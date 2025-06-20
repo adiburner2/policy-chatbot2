@@ -13,6 +13,9 @@
     <a class="nav-link active" href="{{ url_for('admin_analytics') }}"><i class="fas fa-chart-line fa-fw"></i> Analytics</a>
 </li>
 <li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin_glossary') }}"><i class="fas fa-book fa-fw"></i> Glossary</a>
+</li>
+<li class="nav-item">
     <a class="nav-link" href="{{ url_for('admin_settings') }}"><i class="fas fa-cog fa-fw"></i> Settings</a>
 </li>
 {% endblock %}
@@ -45,12 +48,12 @@
         <div class="card mb-4">
             <div class="card-header"><i class="fas fa-tags"></i> Popular Query Terms</div>
             <div class="card-body">
-                <!-- This would be populated dynamically in a future update -->
-                <span class="badge bg-secondary">data privacy</span>
-                <span class="badge bg-secondary">delete account</span>
-                <span class="badge bg-secondary">cookies</span>
-                <span class="badge bg-secondary">GDPR</span>
-                <span class="badge bg-secondary">third party</span>
+                <!-- FIX: This is now populated dynamically from the backend -->
+                {% for term in analytics.popular_terms %}
+                <span class="badge bg-secondary fs-6 me-1 mb-1">{{ term }}</span>
+                {% else %}
+                <p class="text-muted">No query data available yet.</p>
+                {% endfor %}
             </div>
         </div>
     </div>
@@ -73,7 +76,7 @@
                 <tbody>
                     {% for interaction in interactions %}
                     <tr>
-                        <td>{{ interaction['timestamp'].split('.')[0] }}</td>
+                        <td>{{ interaction['timestamp'].split('.')[0] | replace('T', ' ') }}</td>
                         <td>{{ interaction['user_query'][:80] }}{% if interaction['user_query']|length > 80 %}...{% endif %}</td>
                         <td>
                             {% if interaction['feedback_score'] == 1 %}
@@ -121,10 +124,16 @@
                     {{ analytics.feedback_counts.no_rating }}
                 ],
                 backgroundColor: [
-                    '#198754', // Green for Liked
-                    '#dc3545', // Red for Disliked
-                    '#6c757d'  // Grey for No Feedback
+                    'rgba(25, 135, 84, 0.7)', // Green for Liked
+                    'rgba(220, 53, 69, 0.7)', // Red for Disliked
+                    'rgba(108, 117, 125, 0.7)'  // Grey for No Feedback
                 ],
+                borderColor: [
+                    '#198754',
+                    '#dc3545',
+                    '#6c757d'
+                ],
+                borderWidth: 1,
                 hoverOffset: 4
             }]
         },

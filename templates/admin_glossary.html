@@ -30,33 +30,37 @@
 
 <div class="card">
     <div class="card-body">
-        <table class="table table-hover">
-            <thead>
-                <tr>
-                    <th>Term</th>
-                    <th>Definition</th>
-                    <th style="width: 120px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in glossary_terms %}
-                <tr>
-                    <td><strong>{{ item['term'] }}</strong></td>
-                    <td>{{ item['definition'] }}</td>
-                    <td>
-                        <a href="{{ url_for('admin_delete_term', term_id=item['id']) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this term?');">
-                            <i class="fas fa-trash"></i>
-                        </a>
-                        <!-- Edit functionality can be added later -->
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="3" class="text-center">No glossary terms found. Add one to get started.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Term</th>
+                        <th>Definition</th>
+                        <th class="text-end" style="width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in glossary_terms %}
+                    <tr>
+                        <td><strong>{{ item['term'] }}</strong></td>
+                        <td>{{ item['definition'] }}</td>
+                        <td class="text-end">
+                            <!-- FIX: Use a form for the delete button for better security -->
+                            <form action="{{ url_for('admin_delete_term', term_id=item['id']) }}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this term?');">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="text-center">No glossary terms found. Add one to get started.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
