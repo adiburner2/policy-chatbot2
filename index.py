@@ -1,4 +1,5 @@
 # --- START OF FILE index.py ---
+
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import sqlite3
 import os
@@ -18,82 +19,80 @@ import requests
 import docx
 
 app = Flask(__name__)
-app.secret_key = os.getenv(
-    'FLASK_SECRET_KEY', 'your-very-secret-key-that-is-long')
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-very-secret-key-that-is-long')
 DATABASE = 'policy_chatbot.db'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# --- Database Initialization ---
-
-
+# --- Database Initialization and Settings Management ---
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, login_timestamp DATETIME, failed_attempts INTEGER DEFAULT 0)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, filename TEXT NOT NULL, filetype TEXT NOT NULL, filesize INTEGER NOT NULL, upload_timestamp DATETIME, uploaded_by INTEGER, FOREIGN KEY(uploaded_by) REFERENCES users(id))''')
+        # ADDED display_name COLUMN
+        c.execute('''CREATE TABLE IF NOT EXISTS documents (
+                        id INTEGER PRIMARY KEY, 
+                        filename TEXT NOT NULL, 
+                        display_name TEXT NOT NULL,
+                        filetype TEXT NOT NULL, 
+                        filesize INTEGER NOT NULL, 
+                        upload_timestamp DATETIME, 
+                        uploaded_by INTEGER, 
+                        FOREIGN KEY(uploaded_by) REFERENCES users(id)
+                    )''')
         c.execute('''CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY, client_id INTEGER, api_key TEXT NOT NULL, purpose TEXT, issuance_timestamp DATETIME, FOREIGN KEY(client_id) REFERENCES users(id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS interactions (id INTEGER PRIMARY KEY, user_query TEXT, ai_response TEXT, timestamp DATETIME, feedback_score INTEGER, feedback_comment TEXT, response_id TEXT, response_time_seconds REAL)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS glossary (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            term TEXT UNIQUE NOT NULL,
-            definition TEXT NOT NULL
-        )''')
-        # Add some sample terms for testing
-        c.execute("SELECT COUNT(*) FROM glossary")
-        if c.fetchone()[0] == 0:
+        c.execute('''CREATE TABLE IF NOT EXISTS glossary (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT UNIQUE NOT NULL, definition TEXT NOT NULL)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)''')
+        
+        if c.execute("SELECT COUNT(*) FROM glossary").fetchone()[0] == 0:
             sample_terms = [
                 ('GDPR', 'The General Data Protection Regulation is a regulation in EU law on data protection and privacy.'),
                 ('Cookies', 'Small files stored on a user\'s computer by their web browser at the request of a website.'),
                 ('Personal Data', 'Any information that relates to an identified or identifiable individual.'),
                 ('Third-party', 'An entity other than the user or the service provider, who may receive user data.')
             ]
-            c.executemany(
-                "INSERT INTO glossary (term, definition) VALUES (?, ?)", sample_terms)
-            conn.commit()
+            c.executemany("INSERT INTO glossary (term, definition) VALUES (?, ?)", sample_terms)
 
-        c.execute("SELECT COUNT(*) FROM users")
-        if c.fetchone()[0] == 0:
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                      ('admin', hash_password('admin123'), 'admin'))
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                      ('client', hash_password('client123'), 'client'))
-            conn.commit()
+        if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('admin', hash_password('admin123'), 'admin'))
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('client', hash_password('client123'), 'client'))
+        
+        conn.commit()
+
+def init_settings():
+    """Initializes the settings table with default values if they don't exist."""
+    with sqlite3.connect(DATABASE) as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ('chatbot_enabled', 'true'))
+        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ('chatbot_timeout', '5m'))
         conn.commit()
 
 # --- Utility Functions ---
-
-
 def get_db_connection():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
 
-
 def hash_password(password):
     import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
 
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-def extract_text_from_pdf(file_path):
+def extract_text_from_pdf(file_path_or_stream):
     text = ""
-    with pdfplumber.open(file_path) as pdf:
+    with pdfplumber.open(file_path_or_stream) as pdf:
         for page in pdf.pages:
             text += page.extract_text() or ""
     return text
 
-
-def extract_text_from_docx(file_path):
-    doc = docx.Document(file_path)
+def extract_text_from_docx(file_path_or_stream):
+    doc = docx.Document(file_path_or_stream)
     return "\n".join([para.text for para in doc.paragraphs])
-
 
 def extract_text_from_url(url):
     try:
@@ -101,157 +100,129 @@ def extract_text_from_url(url):
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        main_content = soup.find('main') or soup.find('article') or soup.find(
-            id='content') or soup.find(id='policy-content')
+        main_content = soup.find('main') or soup.find('article') or soup.find(id='content') or soup.find(id='policy-content')
         target_soup = main_content if main_content else soup.body
-
-        if not target_soup:
-            return None
-
-        for element in target_soup(['script', 'style', 'nav', 'header', 'footer']):
-            element.extract()
-
+        if not target_soup: return None
+        for element in target_soup(['script', 'style', 'nav', 'header', 'footer']): element.extract()
         return " ".join(text for text in target_soup.stripped_strings if text)
     except requests.RequestException as e:
         print(f"Error fetching URL {url}: {e}")
         return None
 
-# --- NEW: Function to get all knowledge base content ---
-
-
-def get_knowledge_base_content():
-    """Reads all admin-uploaded documents from the DB and returns their combined text."""
+def get_knowledge_base_content(client_id=None):
+    """
+    Reads all admin-uploaded (global) documents and, if a client_id is provided,
+    also reads that client's specific documents.
+    """
     conn = get_db_connection()
-    documents = conn.execute(
-        'SELECT filename, filetype FROM documents').fetchall()
+    
+    if client_id:
+        # Get documents from both admin (ID=1) and the specific client
+        query = 'SELECT filename, filetype FROM documents WHERE uploaded_by = ? OR uploaded_by = ?'
+        params = (1, client_id)
+    else:
+        # Get only admin documents (global)
+        query = 'SELECT filename, filetype FROM documents WHERE uploaded_by = ?'
+        params = (1,)
+        
+    documents = conn.execute(query, params).fetchall()
     conn.close()
-
+    
     knowledge_base = ""
     for doc in documents:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
         if os.path.exists(file_path):
             try:
+                content = ""
                 if doc['filetype'] == 'pdf':
-                    knowledge_base += extract_text_from_pdf(file_path) + "\n\n"
+                    content = extract_text_from_pdf(file_path)
                 elif doc['filetype'] == 'docx':
-                    knowledge_base += extract_text_from_docx(
-                        file_path) + "\n\n"
+                    content = extract_text_from_docx(file_path)
+                
+                if content:
+                    knowledge_base += f"\n\n--- Start of document: {doc['filename']} ---\n"
+                    knowledge_base += content
+                    knowledge_base += f"\n--- End of document: {doc['filename']} ---\n"
             except Exception as e:
                 print(f"Error reading document {doc['filename']}: {e}")
     return knowledge_base.strip()
 
+def get_settings():
+    """Fetches all settings from the DB and returns them as a dictionary."""
+    conn = get_db_connection()
+    settings_data = conn.execute('SELECT key, value FROM settings').fetchall()
+    conn.close()
+    return {row['key']: row['value'] for row in settings_data}
+
 # --- Core Routes ---
-
-
-@app.route('/')
-def home():
-    return render_template('login.html')
-
-
 @app.route('/logout')
 def logout():
-    # In a real app, you'd clear session data here.
-    # session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
-
 @app.route('/policy-page')
 def policy_example():
+    settings = get_settings() # Get settings to control widget visibility
     try:
-        # This route populates the page with content from a local file for demonstration.
-        # The chatbot widget then correctly scrapes this content via its URL.
         with open('Example-Doc.txt', 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
         content = "The example document could not be found."
-    return render_template('policy_page.html', content=content)
+    return render_template('policy_page.html', content=content, settings=settings)
 
-# --- Login Route (No changes needed) ---
-
-
+# --- Login Route ---
+@app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         hashed_password = hash_password(password)
-
-        with sqlite3.connect(DATABASE) as conn:
-            c = conn.cursor()
-            # This logic needs to be fixed to handle the hashed password correctly.
-            # For now, we'll keep it simple for demonstration. A proper user session system is needed.
-            c.execute('SELECT * FROM users WHERE username = ?', (username,))
-            user_data = c.fetchone()
-
-            if user_data and user_data[2] == hashed_password:
-                user = {
-                    'id': user_data[0], 'username': user_data[1], 'role': user_data[3]}
-                c.execute('UPDATE users SET login_timestamp = ?, failed_attempts = 0 WHERE id = ?',
-                          (datetime.now(), user['id']))
+        conn = get_db_connection()
+        user_data = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        if user_data and user_data['password'] == hashed_password:
+            user = dict(user_data)
+            conn.execute('UPDATE users SET login_timestamp = ?, failed_attempts = 0 WHERE id = ?', (datetime.now(), user['id']))
+            conn.commit()
+            conn.close()
+            flash(f'Welcome, {user["username"]}!', 'success')
+            if user['role'] == 'admin':
+                return redirect(url_for('admin_dashboard'))
+            elif user['role'] == 'client':
+                return redirect(url_for('client_dashboard'))
+        else:
+            if user_data:
+                conn.execute('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?', (user_data['id'],))
                 conn.commit()
-                flash(f'Welcome, {user["username"]}!', 'success')
-                if user['role'] == 'admin':
-                    return redirect(url_for('admin_dashboard'))
-                elif user['role'] == 'client':
-                    return redirect(url_for('client_dashboard'))
-            else:
-                if user_data:
-                    c.execute(
-                        'UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?', (user_data[0],))
-                    conn.commit()
-                flash('Invalid credentials', 'danger')
-                return redirect(url_for('login'))
-
+            conn.close()
+            flash('Invalid credentials', 'danger')
+            return redirect(url_for('login'))
     return render_template('login.html')
-
+    
 # --- Admin Routes ---
-
-
-@app.route('/admin/')  # NEW: Redirect /admin/ to dashboard
+@app.route('/admin/')
 def admin_index():
     return redirect(url_for('admin_dashboard'))
-
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
     conn = get_db_connection()
-
     total_docs = conn.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    # --- FIX: Use DATE() function for SQLite date comparison ---
-    queries_today = conn.execute(
-        'SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = DATE(?)', (today_start.isoformat(),)).fetchone()[0]
-    avg_response_time = conn.execute(
-        'SELECT AVG(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()[0] or 0
-
-    # This correctly shows recently uploaded documents by the admin.
-    recent_docs = conn.execute(
-        'SELECT filename, upload_timestamp FROM documents ORDER BY upload_timestamp DESC LIMIT 5').fetchall()
-
-    labels = []
-    data = []
+    queries_today = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = DATE(?)', (today_start.isoformat(),)).fetchone()[0]
+    avg_response_time = conn.execute('SELECT AVG(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()[0] or 0
+    recent_docs = conn.execute('SELECT filename, upload_timestamp FROM documents ORDER BY upload_timestamp DESC LIMIT 5').fetchall()
+    labels, data = [], []
     for i in range(6, -1, -1):
         day = datetime.now() - timedelta(days=i)
         day_str = day.strftime('%Y-%m-%d')
         labels.append(day.strftime('%a'))
-        # --- FIX: Use DATE() function for SQLite date comparison ---
-        count = conn.execute(
-            'SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = ?', (day_str,)).fetchone()[0]
+        count = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = ?', (day_str,)).fetchone()[0]
         data.append(count)
-
     conn.close()
-
-    stats = {
-        'total_docs': total_docs,
-        'queries_today': queries_today,
-        'avg_response_time': avg_response_time
-    }
+    stats = {'total_docs': total_docs, 'queries_today': queries_today, 'avg_response_time': avg_response_time}
     daily_queries = {'labels': labels, 'data': data}
-
     return render_template('admin_dashboard.html', stats=stats, recent_docs=recent_docs, daily_queries=daily_queries)
-
 
 @app.route('/admin/documents', methods=['GET', 'POST'])
 def admin_documents():
@@ -261,54 +232,52 @@ def admin_documents():
             flash('No file part', 'danger')
             return redirect(request.url)
         file = request.files['document']
-        if file.filename == '':
-            flash('No selected file', 'danger')
+        if file.filename == '' or not allowed_file(file.filename):
+            flash('Invalid file or file type. Only PDF and DOCX are allowed.', 'danger')
             return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = file.filename
-            file_bytes = file.read()
-            filesize = len(file_bytes)
-            filetype = filename.rsplit('.', 1)[1].lower()
-            upload_time = datetime.now()
 
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            with open(file_path, 'wb') as f:
-                f.write(file_bytes)
-
-            # Using 1 as a placeholder for admin user ID
-            conn.execute('INSERT INTO documents (filename, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?)',
-                         (filename, filetype, filesize, upload_time.isoformat(), 1))
-            conn.commit()
-            flash('Document uploaded successfully!', 'success')
+        filename = file.filename
+        file_bytes = file.read()
+        filesize = len(file_bytes)
+        filetype = filename.rsplit('.', 1)[1].lower()
+        upload_time = datetime.now()
+        
+        # Admin uploads have the same filename and display_name
+        safe_filename = filename 
+        display_name = filename
+        
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        
+        # Prevent overwriting existing files
+        if os.path.exists(file_path):
+            flash(f"A file named '{filename}' already exists. Please rename and upload again.", 'warning')
             return redirect(url_for('admin_documents'))
-        else:
-            flash('Invalid file type. Only PDF and DOCX are allowed.', 'danger')
 
-    documents = conn.execute(
-        'SELECT * FROM documents ORDER BY upload_timestamp DESC').fetchall()
+        with open(file_path, 'wb') as f:
+            f.write(file_bytes)
+        
+        # UPDATED: Add display_name to insert
+        conn.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
+                     (safe_filename, display_name, filetype, filesize, upload_time.isoformat(), 1)) # Admin user ID is 1
+        conn.commit()
+        flash('Document uploaded successfully!', 'success')
+        return redirect(url_for('admin_documents'))
+    
+    documents = conn.execute('SELECT * FROM documents ORDER BY upload_timestamp DESC').fetchall()
     conn.close()
     return render_template('admin_documents.html', documents=documents)
 
-
-# --- NEW: Route for deleting a document ---
 @app.route('/admin/documents/delete/<int:doc_id>', methods=['POST'])
 def admin_delete_document(doc_id):
     conn = get_db_connection()
-    doc = conn.execute(
-        'SELECT filename FROM documents WHERE id = ?', (doc_id,)).fetchone()
+    doc = conn.execute('SELECT filename FROM documents WHERE id = ?', (doc_id,)).fetchone()
     if doc:
         try:
-            # Delete file from filesystem
-            file_path = os.path.join(
-                app.config['UPLOAD_FOLDER'], doc['filename'])
-            if os.path.exists(file_path):
-                os.remove(file_path)
-
-            # Delete record from database
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+            if os.path.exists(file_path): os.remove(file_path)
             conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
             conn.commit()
-            flash(
-                f"Document '{doc['filename']}' deleted successfully.", 'success')
+            flash(f"Document '{doc['filename']}' deleted successfully.", 'success')
         except Exception as e:
             flash(f"Error deleting document: {e}", 'danger')
     else:
@@ -316,103 +285,84 @@ def admin_delete_document(doc_id):
     conn.close()
     return redirect(url_for('admin_documents'))
 
-
 @app.route('/admin/analytics')
 def admin_analytics():
     conn = get_db_connection()
-
-    interactions = conn.execute(
-        'SELECT timestamp, user_query, feedback_score, feedback_comment, response_time_seconds FROM interactions ORDER BY timestamp DESC').fetchall()
-
-    # Feedback counts
+    interactions = conn.execute('SELECT * FROM interactions ORDER BY timestamp DESC').fetchall()
     feedback_counts = {
         'liked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = 1').fetchone()[0],
         'disliked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = -1').fetchone()[0],
         'no_rating': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score IS NULL OR feedback_score = 0').fetchone()[0]
     }
-
-    # Response time stats
-    timing_data = conn.execute(
-        'SELECT AVG(response_time_seconds), MIN(response_time_seconds), MAX(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()
-
-    # --- NEW: Dynamic Popular Query Terms ---
-    all_queries = conn.execute(
-        'SELECT user_query FROM interactions').fetchall()
+    timing_data = conn.execute('SELECT AVG(response_time_seconds), MIN(response_time_seconds), MAX(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()
+    
+    all_queries = conn.execute('SELECT user_query FROM interactions').fetchall()
     words = []
-    # Simple stop words list, can be expanded
-    stop_words = set(['what', 'is', 'the', 'are', 'a', 'an',
-                     'in', 'of', 'for', 'to', 'how', 'do', 'i'])
+    stop_words = set(['what', 'is', 'the', 'are', 'a', 'an', 'in', 'of', 'for', 'to', 'how', 'do', 'i'])
     for row in all_queries:
-        # Clean up query: remove punctuation, convert to lowercase, split into words
+        if not row['user_query']: continue
         cleaned_query = re.sub(r'[^\w\s]', '', row['user_query']).lower()
-        words.extend([word for word in cleaned_query.split()
-                     if word not in stop_words and len(word) > 2])
-
+        words.extend([word for word in cleaned_query.split() if word not in stop_words and len(word) > 2])
     popular_terms = [term for term, count in Counter(words).most_common(5)]
-    # --- END NEW FEATURE ---
-
+    
     analytics_data = {
         'feedback_counts': feedback_counts,
         'avg_response_time': timing_data[0] or 0,
         'min_response_time': timing_data[1] or 0,
         'max_response_time': timing_data[2] or 0,
-        'popular_terms': popular_terms  # Pass to template
+        'popular_terms': popular_terms
     }
-
     conn.close()
     return render_template('admin_analytics.html', interactions=interactions, analytics=analytics_data)
-
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
     conn = get_db_connection()
-
     if request.method == 'POST':
-        # Handle user creation
         if 'add_user' in request.form:
-            username = request.form['username']
-            password = request.form['password']
-            role = request.form['role']
+            username, password, role = request.form.get('username'), request.form.get('password'), request.form.get('role')
             if username and password and role:
                 try:
-                    conn.execute(
-                        'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
-                        (username, hash_password(password), role)
-                    )
+                    conn.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', (username, hash_password(password), role))
                     conn.commit()
                     flash('User added successfully.', 'success')
                 except sqlite3.IntegrityError:
                     flash('Username already exists.', 'danger')
             else:
                 flash('All fields are required to add a user.', 'warning')
+        
+        elif 'save_settings' in request.form:
+            chatbot_enabled = request.form.get('chatbot_enabled')
+            chatbot_timeout = request.form.get('chatbot_timeout')
+            chatbot_enabled_value = 'true' if chatbot_enabled == 'on' else 'false'
+            c = conn.cursor()
+            c.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_enabled_value, 'chatbot_enabled'))
+            c.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_timeout, 'chatbot_timeout'))
+            conn.commit()
+            flash('Chatbot settings updated successfully.', 'success')
+        
+        conn.close()
         return redirect(url_for('admin_settings'))
 
     users = conn.execute('SELECT id, username, role FROM users').fetchall()
-    # --- NEW: Fetch API keys for display ---
     api_keys = conn.execute('''
-        SELECT api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp 
-        FROM api_keys 
-        JOIN users ON api_keys.client_id = users.id
+        SELECT api_keys.id, api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp 
+        FROM api_keys JOIN users ON api_keys.client_id = users.id
         ORDER BY api_keys.issuance_timestamp DESC
     ''').fetchall()
+    
+    current_settings = get_settings()
     conn.close()
-    # --- NEW: Make system info dynamic ---
-    db_info = {'name': DATABASE, 'model': 'phi3:mini'}
-    return render_template('admin_settings.html', users=users, api_keys=api_keys, db_info=db_info)
-
-# --- NEW: Route for deleting a user ---
-
+    db_info = {'name': DATABASE, 'model': 'phi3:mini'} 
+    return render_template('admin_settings.html', users=users, api_keys=api_keys, db_info=db_info, settings=current_settings)
 
 @app.route('/admin/users/delete/<int:user_id>', methods=['POST'])
 def admin_delete_user(user_id):
-    # Basic protection to prevent deleting the primary admin (ID 1)
     if user_id == 1:
         flash('Cannot delete the primary admin account.', 'danger')
         return redirect(url_for('admin_settings'))
-
     conn = get_db_connection()
     try:
-        # Also delete associated API keys to maintain database integrity
         conn.execute('DELETE FROM api_keys WHERE client_id = ?', (user_id,))
         conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
         conn.commit()
@@ -421,185 +371,13 @@ def admin_delete_user(user_id):
         flash(f'Error deleting user: {e}', 'danger')
     finally:
         conn.close()
-
     return redirect(url_for('admin_settings'))
 
-# --- Client Routes ---
-
-
-@app.route('/client/dashboard')
-def client_dashboard():
-    return render_template('client_dashboard.html')
-
-
-@app.route('/client/api_key', methods=['GET', 'POST'])
-def client_api_key():
-    conn = get_db_connection()
-    # Assuming client_id is 2 for demonstration
-    client_id_to_use = 2
-
-    if request.method == 'POST':
-        purpose = request.form.get('purpose', 'General Use')
-        api_key = str(uuid.uuid4())  # More secure key
-        conn.execute('INSERT INTO api_keys (client_id, api_key, purpose, issuance_timestamp) VALUES (?, ?, ?, ?)',
-                     (client_id_to_use, api_key, purpose, datetime.now().isoformat()))
-        conn.commit()
-        flash(f'New API Key generated for "{purpose}"!', 'success')
-        return redirect(url_for('client_api_key'))
-
-    api_keys = conn.execute(
-        'SELECT * FROM api_keys WHERE client_id = ?', (client_id_to_use,)).fetchall()
-    conn.close()
-    return render_template('client_api_key.html', api_keys=api_keys)
-
-
-# --- Chat and Feedback Routes ---
-@app.route('/chat', methods=['POST'])
-def handle_chat():
-    query = request.form.get('query')
-    url = request.form.get('url')
-    document_content = ""
-    context_source = "general knowledge"
-
-    # --- UPDATED CONTEXT GATHERING LOGIC ---
-    # Step 1: Check for a user-uploaded file first.
-    if 'document' in request.files and request.files['document'].filename != '':
-        file = request.files['document']
-        if file and allowed_file(file.filename):
-            try:
-                context_source = f"the uploaded document '{file.filename}'"
-                # Use a temporary stream to avoid saving guest files
-                temp_stream = file.stream
-                if file.filename.lower().endswith('.pdf'):
-                    document_content = extract_text_from_pdf(temp_stream)
-                elif file.filename.lower().endswith('.docx'):
-                    document_content = extract_text_from_docx(temp_stream)
-            except Exception as e:
-                traceback.print_exc()
-                return jsonify({'error': f'Error processing file: {str(e)}'}), 500
-        else:
-            return jsonify({'error': 'Invalid file type. Please upload PDF or DOCX.'}), 400
-    
-    # Step 2: If no file, check for a URL.
-    elif url:
-        context_source = f"the content from the web page"
-        document_content = extract_text_from_url(url)
-        if not document_content:
-            return jsonify({'error': 'Could not retrieve or parse content from the provided URL.'}), 400
-
-    # Step 3: Combine with the global knowledge base from admin-uploaded documents.
-    knowledge_base_content = get_knowledge_base_content()
-    if knowledge_base_content:
-        # Prepend the global knowledge base to the specific context
-        document_content = knowledge_base_content + "\n\n" + document_content
-        context_source += " and the knowledge base"
-    
-    if not query:
-        return jsonify({'error': 'Query cannot be empty.'}), 400
-
-    try:
-        start_time = time.time()
-        
-        # --- REFINED PROMPTING LOGIC ---
-        if document_content.strip():
-            # RAG (Retrieval-Augmented Generation) path
-            system_prompt = """You are 'Policy Insight', an AI assistant. Your task is to analyze the provided context and answer questions based ONLY on that context.
-- Analyze the "CONTEXT" section in the user's message.
-- Answer the user's "QUESTION" using ONLY information found in the CONTEXT.
-- If the answer is not in the context, you MUST state that you could not find the information in the provided document(s).
-- Do not use any outside knowledge. Keep answers concise and clear.
-- Use simple Markdown for formatting (like **bolding** or lists). Do not provide legal advice."""
-
-            user_message_content = f"""CONTEXT from {context_source}:
----
-{document_content[:8000]}
----
-QUESTION: "{query}"
-"""
-        else:
-            # General knowledge path
-            system_prompt = """You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.
-- Do NOT give legal advice. Keep answers concise and clear.
-- Use markdown for formatting."""
-            user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
-
-        response = ollama.chat(
-            model='phi3:mini',
-            messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_message_content},
-            ],
-        )
-        
-        end_time = time.time()
-        duration = end_time - start_time
-        
-        ai_response_text = response['message']['content']
-        html_response = markdown.markdown(ai_response_text)
-        response_id = str(uuid.uuid4())
-
-        with sqlite3.connect(DATABASE) as conn:
-            c = conn.cursor()
-            c.execute(
-                "INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (?, ?, ?, ?, ?)",
-                (query, ai_response_text, datetime.now().isoformat(), response_id, duration)
-            )
-            conn.commit()
-
-        conn_glossary = get_db_connection()
-        glossary_terms = conn_glossary.execute('SELECT term, definition FROM glossary').fetchall()
-        conn_glossary.close()
-        
-        glossary_dict = {term['term']: term['definition'] for term in glossary_terms}
-
-        return jsonify({
-            'response': html_response,
-            'response_id': response_id,
-            'duration': f"{duration:.2f}",
-            'glossary': glossary_dict
-        })
-
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
-
-@app.route('/feedback', methods=['POST'])
-def handle_feedback():
-    try:
-        score_str = request.form.get('score')
-        response_id = request.form.get('response_id')
-        # comment field can be added to the form in JS if needed
-        comment_text = request.form.get('comment') 
-
-        if not score_str or not response_id:
-            return jsonify({'error': 'Score and response ID are required.'}), 400
-        
-        score = int(score_str)
-        # Use provided comment, or default to "Liked"/"Disliked"
-        comment = comment_text if comment_text else ("Liked" if score == 1 else "Disliked")
-
-        with sqlite3.connect(DATABASE) as conn:
-            c = conn.cursor()
-            c.execute(
-                "UPDATE interactions SET feedback_score = ?, feedback_comment = ? WHERE response_id = ?",
-                (score, comment, response_id)
-            )
-            conn.commit()
-
-            if c.rowcount == 0:
-                return jsonify({'error': 'Invalid response ID.'}), 404
-
-        return jsonify({'status': 'success', 'message': 'Feedback received successfully!'})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': 'An internal server error occurred.'}), 500
-    
 @app.route('/admin/glossary', methods=['GET', 'POST'])
 def admin_glossary():
     conn = get_db_connection()
     if request.method == 'POST':
-        term = request.form['term']
-        definition = request.form['definition']
+        term, definition = request.form['term'], request.form['definition']
         if term and definition:
             try:
                 conn.execute('INSERT INTO glossary (term, definition) VALUES (?, ?)', (term, definition))
@@ -624,6 +402,220 @@ def admin_delete_term(term_id):
     flash('Term deleted successfully.', 'success')
     return redirect(url_for('admin_glossary'))
 
+# --- Client Routes ---
+@app.route('/client/dashboard')
+def client_dashboard():
+    conn = get_db_connection()
+    # This is a placeholder for a real client session. We'll use ID 2.
+    client_id_to_use = 2 
+
+    # Simplified analytics: counts all interactions. In a real app, you would
+    # link interactions to clients via their API key.
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    queries_today = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = DATE(?)', (today_start.isoformat(),)).fetchone()[0]
+    
+    start_of_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    queries_this_month = conn.execute('SELECT COUNT(*) FROM interactions WHERE timestamp >= ?', (start_of_month.isoformat(),)).fetchone()[0]
+
+    stats = {
+        'queries_today': queries_today,
+        'queries_this_month': queries_this_month,
+        'status': 'Active' 
+    }
+    conn.close()
+    return render_template('client_dashboard.html', stats=stats)
+
+
+@app.route('/client/api_key', methods=['GET', 'POST'])
+def client_api_key():
+    conn = get_db_connection()
+    client_id_to_use = 2 # Placeholder for a real client session
+
+    if request.method == 'POST':
+        purpose = request.form.get('purpose', 'General Use')
+        api_key = str(uuid.uuid4())
+        conn.execute('INSERT INTO api_keys (client_id, api_key, purpose, issuance_timestamp) VALUES (?, ?, ?, ?)',
+                     (client_id_to_use, api_key, purpose, datetime.now().isoformat()))
+        conn.commit()
+        flash(f'New API Key generated for "{purpose}"!', 'success')
+        return redirect(url_for('client_api_key'))
+    
+    api_keys = conn.execute('SELECT * FROM api_keys WHERE client_id = ? ORDER BY issuance_timestamp DESC', (client_id_to_use,)).fetchall()
+    conn.close()
+    return render_template('client_api_key.html', api_keys=api_keys)
+
+@app.route('/client/api_key/delete/<int:key_id>', methods=['POST'])
+def client_delete_api_key(key_id):
+    client_id_to_use = 2 # Placeholder for a real client session
+    conn = get_db_connection()
+    key = conn.execute('SELECT * FROM api_keys WHERE id = ? AND client_id = ?', (key_id, client_id_to_use)).fetchone()
+    if key:
+        conn.execute('DELETE FROM api_keys WHERE id = ?', (key_id,))
+        conn.commit()
+        flash('API Key revoked successfully.', 'success')
+    else:
+        flash('API Key not found or you do not have permission to revoke it.', 'danger')
+    conn.close()
+    return redirect(url_for('client_api_key'))
+
+@app.route('/client/documents', methods=['GET', 'POST'])
+def client_documents():
+    conn = get_db_connection()
+    client_id_to_use = 2 # Placeholder for a real client session
+
+    if request.method == 'POST':
+        if 'document' not in request.files:
+            flash('No file part', 'danger')
+            return redirect(request.url)
+        file = request.files['document']
+        if file.filename == '' or not allowed_file(file.filename):
+            flash('Invalid file or file type. Only PDF and DOCX are allowed.', 'danger')
+            return redirect(request.url)
+
+        original_filename = file.filename
+        # Create a unique filename for storage to prevent clashes
+        safe_filename = f"client_{client_id_to_use}_{uuid.uuid4().hex[:8]}_{original_filename}"
+        
+        file_bytes = file.read()
+        filesize = len(file_bytes)
+        filetype = original_filename.rsplit('.', 1)[1].lower()
+        upload_time = datetime.now()
+        
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        with open(file_path, 'wb') as f:
+            f.write(file_bytes)
+        
+        # UPDATED: Store both safe_filename and original_filename (as display_name)
+        conn.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
+                     (safe_filename, original_filename, filetype, filesize, upload_time.isoformat(), client_id_to_use))
+        conn.commit()
+        flash(f"Document '{original_filename}' uploaded successfully!", 'success')
+        return redirect(url_for('client_documents'))
+    
+    # Fetch only documents uploaded by this specific client
+    documents = conn.execute('SELECT * FROM documents WHERE uploaded_by = ? ORDER BY upload_timestamp DESC', (client_id_to_use,)).fetchall()
+    conn.close()
+    return render_template('client_documents.html', documents=documents)
+
+@app.route('/client/documents/delete/<int:doc_id>', methods=['POST'])
+def client_delete_document(doc_id):
+    client_id_to_use = 2 # Placeholder for a real client session
+    conn = get_db_connection()
+    doc = conn.execute('SELECT filename FROM documents WHERE id = ? AND uploaded_by = ?', (doc_id, client_id_to_use)).fetchone()
+    if doc:
+        try:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+            if os.path.exists(file_path): os.remove(file_path)
+            conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
+            conn.commit()
+            flash('Document deleted successfully.', 'success')
+        except Exception as e:
+            flash(f"Error deleting document: {e}", 'danger')
+    else:
+        flash('Document not found or you do not have permission to delete it.', 'danger')
+    conn.close()
+    return redirect(url_for('client_documents'))
+
+# --- Chat and Feedback Routes ---
+@app.route('/chat', methods=['POST'])
+def handle_chat():
+    query = request.form.get('query')
+    url = request.form.get('url')
+    api_key = request.form.get('api_key') # Get API key from form data
+    document_content, context_source = "", "general knowledge"
+
+    client_id = None
+    if api_key:
+        conn = get_db_connection()
+        client = conn.execute('SELECT client_id FROM api_keys WHERE api_key = ?', (api_key,)).fetchone()
+        if client:
+            client_id = client['client_id']
+        conn.close()
+
+    if 'document' in request.files and request.files['document'].filename != '':
+        file = request.files['document']
+        if file and allowed_file(file.filename):
+            try:
+                context_source = f"the uploaded document '{file.filename}'"
+                temp_stream = file.stream
+                if file.filename.lower().endswith('.pdf'): document_content += extract_text_from_pdf(temp_stream)
+                elif file.filename.lower().endswith('.docx'): document_content += extract_text_from_docx(temp_stream)
+            except Exception as e:
+                traceback.print_exc()
+                return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+        else:
+            return jsonify({'error': 'Invalid file type. Please upload PDF or DOCX.'}), 400
+    elif url:
+        context_source = "the content from the current web page"
+        document_content += extract_text_from_url(url) or ""
+    
+    knowledge_base_content = get_knowledge_base_content(client_id)
+    if knowledge_base_content:
+        document_content = knowledge_base_content + "\n\n--- SEPARATOR ---\n\n" + document_content
+        context_source += " and the site's knowledge base"
+
+    if not query: return jsonify({'error': 'Query cannot be empty.'}), 400
+
+    try:
+        start_time = time.time()
+        settings = get_settings()
+        keep_alive_value = settings.get('chatbot_timeout', '5m') 
+
+        if document_content.strip():
+            system_prompt = "You are 'Policy Insight', an AI assistant. Your task is to analyze the provided context and answer questions based ONLY on that context.\n- Analyze the 'CONTEXT' section.\n- Answer the user's 'QUESTION' using ONLY information found in the CONTEXT.\n- If the answer is not in the context, state that you could not find the information in the provided document(s).\n- Do not use outside knowledge. Be concise. Use simple Markdown for formatting. Do not give legal advice."
+            user_message_content = f"CONTEXT from {context_source}:\n---\n{document_content[:8000]}\n---\nQUESTION: \"{query}\""
+        else:
+            system_prompt = "You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.\n- Do NOT give legal advice.\n- Keep answers concise and clear.\n- Use markdown for formatting."
+            user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
+
+        response = ollama.chat(
+            model='phi3:mini',
+            options={'keep_alive': keep_alive_value},
+            messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_message_content}]
+        )
+        
+        duration = time.time() - start_time
+        ai_response_text = response['message']['content']
+        html_response = markdown.markdown(ai_response_text)
+        response_id = str(uuid.uuid4())
+
+        with sqlite3.connect(DATABASE) as conn:
+            conn.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (?, ?, ?, ?, ?)", (query, ai_response_text, datetime.now().isoformat(), response_id, duration))
+            conn.commit()
+
+        conn_glossary = get_db_connection()
+        glossary_terms = conn_glossary.execute('SELECT term, definition FROM glossary').fetchall()
+        conn_glossary.close()
+        glossary_dict = {term['term']: term['definition'] for term in glossary_terms}
+
+        return jsonify({'response': html_response, 'response_id': response_id, 'duration': f"{duration:.2f}", 'glossary': glossary_dict})
+    except Exception as e:
+        print(f"Chat error: {e}")  
+        traceback.print_exc()
+        return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
+
+@app.route('/feedback', methods=['POST'])
+def handle_feedback():
+    try:
+        score_str = request.form.get('score')
+        response_id = request.form.get('response_id')
+        comment_text = request.form.get('comment')
+        if not score_str or not response_id:
+            return jsonify({'error': 'Score and response ID are required.'}), 400
+        score = int(score_str)
+        comment = comment_text if comment_text else ("Liked" if score == 1 else "Disliked")
+        with sqlite3.connect(DATABASE) as conn:
+            c = conn.cursor()
+            c.execute("UPDATE interactions SET feedback_score = ?, feedback_comment = ? WHERE response_id = ?", (score, comment, response_id))
+            conn.commit()
+            if c.rowcount == 0:
+                return jsonify({'error': 'Invalid response ID.'}), 404
+        return jsonify({'status': 'success', 'message': 'Feedback received successfully!'})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': 'An internal server error occurred.'}), 500
+
 if __name__ == "__main__":
     init_db()
+    init_settings() # Initialize settings on startup
     app.run(debug=True, port=5000)

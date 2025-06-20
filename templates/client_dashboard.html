@@ -1,42 +1,139 @@
 {% extends "layout.html" %}
 
-{% block title %}Client Dashboard{% endblock %}
+{% block title %}Dashboard - Policy Insight{% endblock %}
 
 {% block sidebar_links %}
-<li class="nav-item">
-    <a class="nav-link active" href="{{ url_for('client_dashboard') }}"><i class="fas fa-tachometer-alt fa-fw"></i> Dashboard</a>
-</li>
-<li class="nav-item">
-    <a class="nav-link" href="{{ url_for('client_api_key') }}"><i class="fas fa-key fa-fw"></i> API Keys</a>
-</li>
-<li class="nav-item">
-    <a class="nav-link" href="#"><i class="fas fa-file-alt fa-fw"></i> My Documents</a>
-</li>
+<a href="{{ url_for('client_dashboard') }}" class="list-group-item list-group-item-action active">
+    <i class="fas fa-tachometer-alt"></i>Dashboard
+</a>
+<a href="{{ url_for('client_api_key') }}" class="list-group-item list-group-item-action">
+    <i class="fas fa-key"></i>API Keys
+</a>
+<a href="{{ url_for('client_documents') }}" class="list-group-item list-group-item-action">
+    <i class="fas fa-file-alt"></i>My Documents
+</a>
 {% endblock %}
 
 {% block content %}
-<h2 class="mb-4">Client Dashboard</h2>
-<p>Welcome, Client! Here you can manage your API integration and documents.</p>
-<!-- Placeholder for client-specific stats -->
-<div class="row">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">API Usage</div>
-            <div class="card-body">
-                <p>API Calls Today: <strong>1,234</strong></p>
-                <p>Total Calls this Month: <strong>56,789</strong></p>
-                <p>Status: <span class="badge bg-success">Active</span></p>
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="text-muted mb-0">Welcome back! Here's an overview of your Policy Insight integration.</p>
+</div>
+
+<!-- Quick Stats -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.queries_today }}</div>
+            <div class="stat-label">Queries Today</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.queries_this_month }}</div>
+            <div class="stat-label">Monthly Queries</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success me-2">{{ stats.status }}</span>
+                <span class="stat-label mb-0">System Status</span>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number">{{ api_keys|length if api_keys else 0 }}</div>
+            <div class="stat-label">Active API Keys</div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row g-4">
+    <div class="col-lg-8">
         <div class="card">
-            <div class="card-header">Integration</div>
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
             <div class="card-body">
-                <p>Get started with integrating the chatbot on your site.</p>
-                <a href="{{ url_for('client_api_key') }}" class="btn btn-primary">Get Your API Key</a>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center p-3 bg-light rounded">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-key fa-2x text-primary"></i>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">API Integration</h6>
+                                <p class="mb-2 text-muted small">Generate and manage your API keys</p>
+                                <a href="{{ url_for('client_api_key') }}" class="btn btn-sm btn-primary">
+                                    Manage Keys
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center p-3 bg-light rounded">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-upload fa-2x text-success"></i>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">Document Upload</h6>
+                                <p class="mb-2 text-muted small">Upload your policy documents</p>
+                                <a href="{{ url_for('client_documents') }}" class="btn btn-sm btn-success">
+                                    Upload Documents
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Getting Started</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-start mb-3">
+                    <div class="flex-shrink-0">
+                        <span class="badge bg-primary rounded-pill">1</span>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h6 class="mb-1">Upload Documents</h6>
+                        <p class="text-muted small mb-0">Add your policy documents (PDF/DOCX)</p>
+                    </div>
+                </div>
+                <div class="d-flex align-items-start mb-3">
+                    <div class="flex-shrink-0">
+                        <span class="badge bg-primary rounded-pill">2</span>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h6 class="mb-1">Generate API Key</h6>
+                        <p class="text-muted small mb-0">Create an API key for your website</p>
+                    </div>
+                </div>
+                <div class="d-flex align-items-start">
+                    <div class="flex-shrink-0">
+                        <span class="badge bg-primary rounded-pill">3</span>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h6 class="mb-1">Integrate Widget</h6>
+                        <p class="text-muted small mb-0">Add the widget to your website</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Usage Notice -->
+<div class="alert alert-info mt-4">
+    <i class="fas fa-info-circle me-2"></i>
+    <strong>Note:</strong> Usage statistics shown are currently system-wide for demonstration purposes. 
+    Individual client tracking will be implemented in future updates.
 </div>
 {% endblock %}

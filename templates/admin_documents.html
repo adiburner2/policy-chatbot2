@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+{% extends "admin_layout.html" %}
 
 {% block title %}Manage Documents{% endblock %}
 
@@ -44,7 +44,7 @@
                 <tbody>
                     {% for doc in documents %}
                     <tr>
-                        <td><i class="fas fa-file-{{ 'pdf' if doc['filetype'] == 'pdf' else 'word' }} me-2 text-secondary"></i>{{ doc['filename'] }}</td>
+                        <td><i class="fas fa-file-{{ 'pdf' if doc['filetype'] == 'pdf' else 'word' }} me-2 text-secondary"></i>{{ doc['display_name'] }}</td>
                         <td>{{ doc['filetype'].upper() }}</td>
                         <td>{{ '%.2f'|format(doc['filesize'] / 1024) }}</td>
                         <td>{{ doc['upload_timestamp'].split('T')[0] }}</td>

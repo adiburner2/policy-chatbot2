@@ -12,11 +12,14 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
       rel="stylesheet"
     />
-    <!-- Link to the widget's CSS -->
+
+    <!-- Conditionally load the widget's CSS based on the setting -->
+    {% if settings.chatbot_enabled == 'true' %}
     <link
       rel="stylesheet"
       href="{{ url_for('static', filename='css/widget.css') }}"
     />
+    {% endif %}
   </head>
   <body>
     <div class="container mt-5">
@@ -30,10 +33,14 @@
 
     <!-- The Chat Widget will be injected here by JavaScript -->
 
-    <!-- Load the widget's JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- Load the widget's JavaScript -->
-    <script src="{{ url_for('static', filename='js/widget.js') }}"></script>
+    <!-- Conditionally load the widget's JavaScript based on the setting -->
+    {% if settings.chatbot_enabled == 'true' %}
+    <script
+      src="{{ url_for('static', filename='js/widget.js') }}"
+      data-api-key="3027dbe4-5bb4-4c5f-939e-69aa5b263744"
+    ></script>
+    {% endif %}
   </body>
 </html>

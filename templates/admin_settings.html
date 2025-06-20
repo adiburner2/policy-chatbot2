@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+{% extends "admin_layout.html" %}
 
 {% block title %}Settings{% endblock %}
 
@@ -24,51 +24,35 @@
 <h2 class="mb-4">System Settings</h2>
 
 <div class="row">
-    <!-- Left Column: User Management -->
+    <!-- Left Column: Settings -->
     <div class="col-md-8">
+        <!-- Chatbot Configuration Card -->
         <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                User Management
-                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addUserModal">
-                    <i class="fas fa-plus"></i> Add User
-                </button>
-            </div>
+            <div class="card-header">Chatbot Configuration</div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Username</th>
-                                <th>Role</th>
-                                <th class="text-end">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in users %}
-                            <tr>
-                                <td>{{ user['id'] }}</td>
-                                <td>{{ user['username'] }}</td>
-                                <td><span class="badge bg-secondary">{{ user['role'] }}</span></td>
-                                <td class="text-end">
-                                    <button class="btn btn-sm btn-outline-primary" disabled title="Edit not implemented"><i class="fas fa-edit"></i></button>
-                                    <!-- Disable deleting the primary admin (ID 1) -->
-                                    <form action="{{ url_for('admin_delete_user', user_id=user.id) }}" method="post" class="d-inline">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" 
-                                                {% if user['id'] == 1 %}disabled title="Cannot delete primary admin"{% endif %} 
-                                                onclick="return confirm('Are you sure you want to delete this user?');">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <form action="{{ url_for('admin_settings') }}" method="post">
+                    <input type="hidden" name="save_settings" value="1">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableChatbot" name="chatbot_enabled" 
+                               {% if settings.chatbot_enabled == 'true' %}checked{% endif %}>
+                        <label class="form-check-label" for="enableChatbot">Enable Chatbot Widget on Site</label>
+                    </div>
+                    <div class="mb-3">
+                        <label for="chatbotTimeout" class="form-label">Chatbot Model Timeout (keep_alive)</label>
+                        <select class="form-select" id="chatbotTimeout" name="chatbot_timeout">
+                            <option value="5m" {% if settings.chatbot_timeout == '5m' %}selected{% endif %}>5 Minutes</option>
+                            <option value="15m" {% if settings.chatbot_timeout == '15m' %}selected{% endif %}>15 Minutes</option>
+                            <option value="30m" {% if settings.chatbot_timeout == '30m' %}selected{% endif %}>30 Minutes</option>
+                            <option value="-1" {% if settings.chatbot_timeout == '-1' %}selected{% endif %}>Never Unload (Keeps model in memory)</option>
+                        </select>
+                        <div class="form-text">How long the model stays loaded in memory after the last request.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Chatbot Settings</button>
+                </form>
             </div>
         </div>
-        
+
+        <!-- API Key Management Card -->
         <div class="card">
             <div class="card-header">Client API Keys</div>
             <div class="card-body">
@@ -76,7 +60,7 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>API Key</th>
+                                <th>API Key (start)</th>
                                 <th>Purpose</th>
                                 <th>Client</th>
                                 <th>Issued On</th>
@@ -102,30 +86,47 @@
         </div>
     </div>
 
-    <!-- Right Column: System Info -->
+    <!-- Right Column: User Management & System Info -->
     <div class="col-md-4">
+        <!-- User Management Card -->
         <div class="card mb-4">
-            <div class="card-header">Chatbot Configuration</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                User Management
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addUserModal">
+                    <i class="fas fa-user-plus"></i> Add
+                </button>
+            </div>
             <div class="card-body">
-                <p class="text-muted small">These settings are for display only and are not yet functional.</p>
-                <form>
-                    <div class="form-check form-switch mb-3">
-                        <input class="form-check-input" type="checkbox" role="switch" id="enableChatbot" checked disabled>
-                        <label class="form-check-label" for="enableChatbot">Enable Chatbot Globally</label>
-                    </div>
-                    <div class="mb-3">
-                        <label for="chatbotTimeout" class="form-label">Chatbot Model Timeout (keep_alive)</label>
-                        <select class="form-select" id="chatbotTimeout" disabled>
-                            <option value="5m">5 Minutes</option>
-                            <option value="15m" selected>15 Minutes</option>
-                            <option value="30m">30 Minutes</option>
-                            <option value="-1">Never Unload</option>
-                        </select>
-                    </div>
-                </form>
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Role</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user['username'] }}</td>
+                            <td><span class="badge bg-secondary">{{ user['role'] }}</span></td>
+                            <td class="text-end">
+                                <form action="{{ url_for('admin_delete_user', user_id=user.id) }}" method="post" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" 
+                                            {% if user['id'] == 1 %}disabled title="Cannot delete primary admin"{% endif %} 
+                                            onclick="return confirm('Are you sure you want to delete user \'{{ user.username }}\'? This is permanent.');">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
         
+        <!-- System Info Card -->
         <div class="card">
             <div class="card-header">System Information</div>
             <div class="card-body">

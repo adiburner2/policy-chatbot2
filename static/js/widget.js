@@ -1,3 +1,5 @@
+// --- START OF FILE widget.js ---
+
 // Fixed Widget CSS - Add tooltip z-index styles
 const tooltipStyles = `
 .tooltip-high-z {
@@ -20,6 +22,12 @@ if (!document.getElementById('widget-tooltip-styles')) {
     styleElement.textContent = tooltipStyles;
     document.head.appendChild(styleElement);
 }
+
+// --- FIX: Get the script tag and API key ONCE on script load ---
+const thisScript = document.querySelector('script[src*="widget.js"]');
+const WIDGET_API_KEY = thisScript ? thisScript.getAttribute('data-api-key') : null;
+
+console.log('Widget API Key:', WIDGET_API_KEY); // Debug log
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Create and Inject Widget HTML into the page ---
@@ -89,6 +97,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = queryInput.value.trim();
         if (!query) return;
 
+        console.log('Form submitted with query:', query); // Debug log
+        console.log('Using API key:', WIDGET_API_KEY); // Debug log
+
         displayUserMessage(query);
         queryInput.value = '';
         spinner.style.display = 'flex';
@@ -101,13 +112,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = docUploadInput.files[0];
         if (file) {
             formData.append('document', file);
+            console.log('Uploading file:', file.name); // Debug log
         } else {
             formData.append('url', window.location.href);
+            console.log('Using URL:', window.location.href); // Debug log
+        }
+
+        // Use the API key we stored when the script loaded
+        if (WIDGET_API_KEY) {
+            formData.append('api_key', WIDGET_API_KEY);
         }
 
         try {
+            console.log('Sending POST request to /chat'); // Debug log
             const response = await fetch('/chat', { method: 'POST', body: formData });
+            console.log('Response status:', response.status); // Debug log
+            
             const data = await response.json();
+            console.log('Response data:', data); // Debug log
+            
             if (!response.ok) throw new Error(data.error || 'Unknown server error');
             displayBotMessage(data.response, data.duration, data.response_id, data.glossary);
         } catch (error) {
@@ -170,7 +193,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const terms = Object.keys(glossary).sort((a, b) => b.length - a.length);
         if (terms.length === 0) return;
         
-        // Create regex with word boundaries
         const regex = new RegExp(`\\b(${terms.map(t => t.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})\\b`, 'gi');
         
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
@@ -187,21 +209,17 @@ document.addEventListener('DOMContentLoaded', () => {
             let lastIndex = 0;
             let match;
             
-            // Reset regex
             regex.lastIndex = 0;
             
             while ((match = regex.exec(originalText)) !== null) {
-                // Add text before match
                 if (match.index > lastIndex) {
                     fragment.appendChild(document.createTextNode(originalText.substring(lastIndex, match.index)));
                 }
                 
-                // Create highlighted span
                 const span = document.createElement('span');
                 span.className = 'highlighted-term';
                 span.textContent = match[0];
                 
-                // Find matching definition (case-insensitive)
                 const matchingKey = Object.keys(glossary).find(k => k.toLowerCase() === match[0].toLowerCase());
                 if (matchingKey) {
                     span.setAttribute('data-bs-toggle', 'tooltip');
@@ -213,7 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastIndex = match.index + match[0].length;
             }
             
-            // Add remaining text
             if (lastIndex < originalText.length) {
                 fragment.appendChild(document.createTextNode(originalText.substring(lastIndex)));
             }
@@ -223,16 +240,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     
-        // Initialize tooltips with high z-index
         setTimeout(() => {
             const tooltipElements = element.querySelectorAll('.highlighted-term[data-bs-toggle="tooltip"]');
             tooltipElements.forEach(el => {
-                // Dispose existing tooltip if any
                 const existingTooltip = bootstrap.Tooltip.getInstance(el);
                 if (existingTooltip) {
                     existingTooltip.dispose();
                 }
-                // Create new tooltip with custom z-index
                 new bootstrap.Tooltip(el, {
                     trigger: 'hover focus',
                     html: false,
