@@ -85,12 +85,23 @@ def extract_text_from_docx(file_stream):
 def extract_text_from_url(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        # For local development, requests to the same app can hang.
+        # It's generally fine for production but good to be aware of.
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-        for script in soup(["script", "style"]):
-            script.extract()
-        return " ".join(text for text in soup.stripped_strings if text)
+
+        # Prioritize main content areas for cleaner text extraction
+        main_content = soup.find('main') or soup.find('article') or soup.find(id='content') or soup.find(id='policy-content')
+        target_soup = main_content if main_content else soup.body
+        
+        if not target_soup:
+            return None # Should not happen if page has a body
+
+        for element in target_soup(['script', 'style', 'nav', 'header', 'footer']):
+            element.extract()
+            
+        return " ".join(text for text in target_soup.stripped_strings if text)
     except requests.RequestException as e:
         print(f"Error fetching URL {url}: {e}")
         return None
@@ -106,6 +117,17 @@ def logout():
     # session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
+
+@app.route('/policy-page')
+def policy_example():
+    try:
+        # This route populates the page with content from a local file for demonstration.
+        # The chatbot widget then correctly scrapes this content via its URL.
+        with open('Example-Doc.txt', 'r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        content = "The example document could not be found."
+    return render_template('policy_page.html', content=content)
 
 # --- Login Route (No changes needed) ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -247,7 +269,6 @@ def admin_analytics():
     conn.close()
     return render_template('admin_analytics.html', interactions=interactions, analytics=analytics_data)
 
-
 @app.route('/admin/settings')
 def admin_settings():
     conn = get_db_connection()
@@ -280,7 +301,7 @@ def client_api_key():
     conn.close()
     return render_template('client_api_key.html', api_keys=api_keys)
 
-# --- UPDATED Chat and Feedback Routes ---
+# --- Chat and Feedback Routes ---
 
 @app.route('/chat', methods=['GET', 'POST'])
 def handle_chat():
@@ -297,7 +318,7 @@ def handle_chat():
         file = request.files['document']
         if file and allowed_file(file.filename):
             try:
-                context_source = f"the document '{file.filename}'"
+                context_source = f"the uploaded document '{file.filename}'"
                 if file.filename.lower().endswith('.pdf'):
                     document_content = extract_text_from_pdf(file.stream)
                 elif file.filename.lower().endswith('.docx'):
@@ -308,7 +329,7 @@ def handle_chat():
         else:
             return jsonify({'error': 'Invalid file type. Please upload PDF or DOCX.'}), 400
     elif url:
-        context_source = f"the content from {url}"
+        context_source = f"the content from the current page ({url.split('?')[0]})"
         document_content = extract_text_from_url(url)
         if not document_content:
             return jsonify({'error': 'Could not retrieve or parse content from the provided URL.'}), 400
@@ -319,27 +340,34 @@ def handle_chat():
     try:
         start_time = time.time()
         
-        system_prompt = """
-        You are 'Policy Insight', an AI assistant that simplifies complex documents and answers questions about data privacy and terms of service.
-        Do NOT give legal advice. Keep answers concise and clear. Use markdown for formatting (like **bolding** and lists).
-        """
-        
-        # --- THIS IS THE KEY CHANGE ---
+        # --- MODIFIED: More robust prompting for the LLM ---
         if document_content:
-            # If we have context, we are very specific
-            user_message_content = f"""Based ONLY on the context from {context_source} below, please answer the user's question. If the answer isn't in the context, state that you could not find the information in the provided document.
+            # RAG (Retrieval-Augmented Generation) path for answering based on context
+            system_prompt = """
+            You are 'Policy Insight', an AI assistant. Your task is to analyze a given document and answer questions based ONLY on the text provided in that document.
+            - Analyze the "CONTEXT DOCUMENT" in the user's message.
+            - Answer the user's "QUESTION" using only information from the document.
+            - If the answer is not in the document, you MUST reply with the exact phrase: "I could not find the information in the provided document."
+            - Do not use any outside knowledge. Keep your answers concise and clear.
+            - Use simple Markdown for formatting (like **bolding** or lists). Do not provide legal advice.
+            """
+            user_message_content = f"""Please answer the question based only on the document provided below.
 
-            User's Question: "{query}"
-
-            CONTEXT DOCUMENT:
+            CONTEXT DOCUMENT from {context_source}:
             ---
             {document_content[:8000]}
             ---
+
+            QUESTION: "{query}"
             """
         else:
-            # If there is NO context, we frame it as a general expert question
-            user_message_content = f"As a policy expert, please provide a clear and simple explanation for the following topic: '{query}'"
-
+            # General knowledge path when no document or URL is provided
+            system_prompt = """
+            You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.
+            Do NOT give legal advice. Keep answers concise and clear. Use markdown for formatting.
+            """
+            user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
+        # --- END OF MODIFICATION ---
 
         response = ollama.chat(
             model='phi3:mini',
@@ -441,3 +469,7 @@ def admin_delete_term(term_id):
     conn.close()
     flash('Term deleted successfully.', 'success')
     return redirect(url_for('admin_glossary'))
+    
+if __name__ == "__main__":
+    init_db()
+    app.run(debug=True, port=5000)

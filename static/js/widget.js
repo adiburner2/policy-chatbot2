@@ -1,6 +1,5 @@
-// static/js/widget.js
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Create and Inject Widget HTML ---
+    // --- 1. Create and Inject Widget HTML into the page ---
     const widgetHtml = `
         <div id="policy-chat-bubble">
             <i class="fas fa-shield-alt"></i>
@@ -12,7 +11,10 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="chat-messages" id="chat-messages-widget">
                 <div class="message bot-message">
-                    <p>Hello! I can help you understand the policy on this page. What's your question?</p>
+                    <div class="message-content">
+                        <strong><i class="fas fa-robot"></i> Assistant:</strong>
+                        <p class="mt-2">Hello! I've analyzed this page. Ask me anything about its content, or upload your own document to discuss.</p>
+                    </div>
                 </div>
             </div>
             <div class="thinking-spinner" id="thinking-spinner-widget">
@@ -20,144 +22,200 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="ms-2">Thinking...</span>
             </div>
             <div class="chat-input-area">
-                <form id="chat-form-widget">
-                    <div class="input-group">
-                        <input type="text" id="user-query-widget" class="form-control" placeholder="Ask a question..." required>
-                        <button type="submit" id="send-chat-btn" class="btn btn-primary">
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
-                    </div>
+                <form id="chat-form-widget" class="d-flex align-items-center">
+                    <label for="doc-upload-widget" class="btn btn-secondary me-2 mb-0" title="Upload a document (PDF/DOCX)">
+                        <i class="fas fa-paperclip"></i>
+                        <input type="file" id="doc-upload-widget" name="document" accept=".pdf,.docx" style="display: none;">
+                    </label>
+                    <input type="text" id="user-query-widget" class="form-control" placeholder="Ask a question..." required>
+                    <button type="submit" id="send-chat-btn-widget" class="btn btn-primary ms-2">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </form>
+                <div id="file-name-display-widget" class="form-text mt-1"></div>
             </div>
         </div>
     `;
-
     document.body.insertAdjacentHTML('beforeend', widgetHtml);
 
-    // --- Get DOM Elements ---
+    // --- 2. Get DOM Elements ---
     const chatBubble = document.getElementById('policy-chat-bubble');
     const chatWindow = document.getElementById('policy-chat-window');
     const closeBtn = document.getElementById('close-chat-btn');
     const chatForm = document.getElementById('chat-form-widget');
     const queryInput = document.getElementById('user-query-widget');
+    const docUploadInput = document.getElementById('doc-upload-widget');
+    const fileNameDisplay = document.getElementById('file-name-display-widget');
     const messagesContainer = document.getElementById('chat-messages-widget');
     const spinner = document.getElementById('thinking-spinner-widget');
+    const sendBtn = document.getElementById('send-chat-btn-widget');
 
-    let currentResponseId = null;
-
-    // --- Event Listeners ---
-    chatBubble.addEventListener('click', () => {
-        chatWindow.classList.toggle('open');
+    // --- 3. Event Listeners ---
+    chatBubble.addEventListener('click', () => chatWindow.classList.toggle('open'));
+    closeBtn.addEventListener('click', () => chatWindow.classList.remove('open'));
+    docUploadInput.addEventListener('change', () => {
+        if (docUploadInput.files.length > 0) {
+            fileNameDisplay.textContent = `File: ${docUploadInput.files[0].name}`;
+        }
     });
-
-    closeBtn.addEventListener('click', () => {
-        chatWindow.classList.remove('open');
-    });
-
     chatForm.addEventListener('submit', handleFormSubmit);
 
-    // --- Core Functions ---
+    // --- 4. Core Functions ---
     async function handleFormSubmit(e) {
         e.preventDefault();
         const query = queryInput.value.trim();
         if (!query) return;
 
-        displayMessage(query, 'user');
+        displayUserMessage(query);
         queryInput.value = '';
-        spinner.style.display = 'block';
+        spinner.style.display = 'flex';
+        sendBtn.disabled = true;
 
-        // Prepare form data
         const formData = new FormData();
         formData.append('query', query);
-        
-        // This assumes we are analyzing the current page URL
-        // In a real implementation, you might pass a specific document ID or pre-loaded content
-        formData.append('url', window.location.href);
+
+        // Prioritize uploaded file. If no file, use the page's URL.
+        const file = docUploadInput.files[0];
+        if (file) {
+            formData.append('document', file);
+        } else {
+            formData.append('url', window.location.href);
+        }
 
         try {
-            const response = await fetch('/chat', {
-                method: 'POST',
-                body: formData,
-                // Note: Don't set Content-Type header when using FormData;
-                // the browser sets it correctly with the boundary.
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
-            }
-
+            const response = await fetch('/chat', { method: 'POST', body: formData });
             const data = await response.json();
-            displayMessage(data.response, 'bot', data.duration, data.response_id);
-            currentResponseId = data.response_id; // Store for feedback
-
+            if (!response.ok) throw new Error(data.error || 'Unknown server error');
+            displayBotMessage(data.response, data.duration, data.response_id, data.glossary);
         } catch (error) {
             console.error('Chat error:', error);
-            displayMessage(`Sorry, I encountered a problem: ${error.message}`, 'bot');
+            displayErrorMessage(error.message);
         } finally {
             spinner.style.display = 'none';
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            sendBtn.disabled = false;
+            // Clear file input after sending
+            docUploadInput.value = null;
+            fileNameDisplay.textContent = '';
         }
     }
 
-    function displayMessage(text, sender, duration, responseId) {
-        const messageDiv = document.createElement('div');
-        messageDiv.classList.add('message', `${sender}-message`);
-        
-        let messageContent = `<p>${text}</p>`;
+    function displayUserMessage(text) {
+        const userMessageDiv = document.createElement('div');
+        userMessageDiv.className = 'message user-message';
+        const p = document.createElement('p');
+        p.textContent = text;
+        userMessageDiv.innerHTML = `<div class="message-content">${p.innerHTML}</div>`;
+        messagesContainer.appendChild(userMessageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
 
-        // Add duration and feedback if it's a bot message
-        if (sender === 'bot' && responseId) {
-            const timerHtml = duration ? `<div class="text-muted small mt-1" style="text-align: right; font-size: 0.75rem;"><i class="fas fa-clock"></i> ${duration}s</div>` : '';
-            const feedbackHtml = `
-                <div class="feedback-icons mt-2" style="text-align: right;">
-                    <button class="btn btn-sm btn-outline-success feedback-btn" data-score="5" data-id="${responseId}"><i class="fas fa-thumbs-up"></i></button>
-                    <button class="btn btn-sm btn-outline-danger feedback-btn" data-score="1" data-id="${responseId}"><i class="fas fa-thumbs-down"></i></button>
-                </div>
-            `;
-            messageContent = `<div class="response-text">${text}</div>${timerHtml}${feedbackHtml}`;
-        }
+    function displayBotMessage(htmlResponse, duration, responseId, glossary) {
+        const botMessageDiv = document.createElement('div');
+        botMessageDiv.className = 'message bot-message';
         
-        messageDiv.innerHTML = messageContent;
-        messagesContainer.appendChild(messageDiv);
+        const timerHtml = duration ? `<div class="text-muted small mt-2" style="text-align: right; font-size: 0.75rem;"><i class="fas fa-clock"></i> ${duration}s</div>` : '';
+        const feedbackHtml = `
+            <div class="feedback-icons mt-2" data-response-id="${responseId}">
+                <button class="btn btn-sm btn-outline-secondary feedback-btn" data-score="1" title="Good response"><i class="fas fa-thumbs-up"></i></button>
+                <button class="btn btn-sm btn-outline-secondary feedback-btn" data-score="-1" title="Bad response"><i class="fas fa-thumbs-down"></i></button>
+            </div>`;
+
+        const responseTextDiv = document.createElement('div');
+        responseTextDiv.className = 'response-text mt-1';
+        responseTextDiv.innerHTML = htmlResponse;
+
+        if (glossary && Object.keys(glossary).length > 0) {
+            highlightTerms(responseTextDiv, glossary);
+        }
+
+        const messageContentDiv = document.createElement('div');
+        messageContentDiv.className = 'message-content';
+        messageContentDiv.innerHTML = `<strong><i class="fas fa-robot"></i> Assistant:</strong>`;
+        messageContentDiv.appendChild(responseTextDiv);
+        messageContentDiv.insertAdjacentHTML('beforeend', timerHtml + feedbackHtml);
+        
+        botMessageDiv.appendChild(messageContentDiv);
+        messagesContainer.appendChild(botMessageDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-        // Add event listeners for new feedback buttons
-        if (sender === 'bot' && responseId) {
-            messageDiv.querySelectorAll('.feedback-btn').forEach(btn => {
-                btn.addEventListener('click', handleFeedbackClick);
+        botMessageDiv.querySelectorAll('.feedback-btn').forEach(btn => {
+            btn.addEventListener('click', handleFeedbackClick);
+        });
+    }
+
+    function highlightTerms(element, glossary) {
+        const terms = Object.keys(glossary).sort((a, b) => b.length - a.length);
+        if (terms.length === 0) return;
+        const regex = new RegExp(`\\b(${terms.map(t => t.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})\\b`, 'gi');
+        
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+        let nodesToProcess = [];
+        while(walker.nextNode()) nodesToProcess.push(walker.currentNode);
+
+        nodesToProcess.forEach(node => {
+            if (node.parentElement.closest('A, CODE, .highlighted-term')) return;
+            
+            const fragment = document.createDocumentFragment();
+            let lastIndex = 0;
+            node.nodeValue.replace(regex, (match, offset) => {
+                if (offset > lastIndex) {
+                    fragment.appendChild(document.createTextNode(node.nodeValue.substring(lastIndex, offset)));
+                }
+                const span = document.createElement('span');
+                span.className = 'highlighted-term';
+                span.textContent = match;
+                span.setAttribute('data-bs-toggle', 'tooltip');
+                span.setAttribute('data-bs-placement', 'top');
+                const definition = glossary[Object.keys(glossary).find(k => k.toLowerCase() === match.toLowerCase())] || 'Definition not found.';
+                span.setAttribute('title', definition);
+                fragment.appendChild(span);
+                lastIndex = offset + match.length;
             });
-        }
+            if (lastIndex < node.nodeValue.length) {
+                fragment.appendChild(document.createTextNode(node.nodeValue.substring(lastIndex)));
+            }
+            if (fragment.hasChildNodes()) {
+                node.parentNode.replaceChild(fragment, node);
+            }
+        });
+
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
+
+    function displayErrorMessage(errorText) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'message bot-message';
+        errorDiv.innerHTML = `<div class="message-content error-message"><i class="fas fa-exclamation-triangle"></i> Sorry, an error occurred: ${errorText}</div>`;
+        messagesContainer.appendChild(errorDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
     async function handleFeedbackClick(e) {
         const button = e.currentTarget;
+        const feedbackContainer = button.parentElement;
         const score = button.dataset.score;
-        const responseId = button.dataset.id;
-        
-        // Disable buttons to prevent multiple submissions
-        button.parentElement.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        const responseId = feedbackContainer.dataset.responseId;
+
+        feedbackContainer.innerHTML = '<span class="text-muted small">Thank you!</span>';
+
+        const feedbackData = new URLSearchParams();
+        feedbackData.append('score', score);
+        feedbackData.append('response_id', responseId);
+        feedbackData.append('comment', score == '1' ? 'Liked' : 'Disliked');
 
         try {
-            const feedbackData = new FormData();
-            feedbackData.append('score', score);
-            feedbackData.append('response_id', responseId);
-            feedbackData.append('comment', score === '1' ? 'Disliked' : 'Liked'); // Simple comment
-
-            const response = await fetch('/feedback', {
-                method: 'POST',
-                body: feedbackData
+            const response = await fetch("/feedback", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: feedbackData,
             });
-
-            if (response.ok) {
-                // Indicate feedback was received, e.g., by changing button style
-                button.parentElement.innerHTML = '<span class="text-muted small">Thanks for your feedback!</span>';
-            } else {
-                throw new Error('Feedback submission failed.');
-            }
+            if (!response.ok) throw new Error("Server failed to record feedback.");
         } catch (error) {
-            console.error('Feedback error:', error);
-            button.parentElement.innerHTML = '<span class="text-danger small">Error saving feedback.</span>';
+            console.error("Feedback error:", error);
+            feedbackContainer.innerHTML = '<span class="text-danger small">Error!</span>';
         }
     }
 });

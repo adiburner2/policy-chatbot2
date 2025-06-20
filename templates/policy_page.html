@@ -1,27 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Example Policy Page</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+    />
     <!-- Link to the widget's CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css') }}">
-</head>
-<body>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/widget.css') }}"
+    />
+  </head>
+  <body>
     <div class="container mt-5">
-        <h1>Our Company Terms of Service</h1>
-        <p>Last Updated: June 10, 2025</p>
-        <hr>
-        <div id="policy-content">
-            <pre>{{ content }}</pre>
-        </div>
+      <h1>Our Company Terms of Service</h1>
+      <p>Last Updated: June 10, 2025</p>
+      <hr />
+      <div id="policy-content">
+        <pre>{{ content }}</pre>
+      </div>
     </div>
 
     <!-- The Chat Widget will be injected here by JavaScript -->
 
     <!-- Load the widget's JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Load the widget's JavaScript -->
     <script src="{{ url_for('static', filename='js/widget.js') }}"></script>
-</body>
+  </body>
 </html>
