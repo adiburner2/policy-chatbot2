@@ -1,8 +1,8 @@
-Privacy Policy for ExampleCorp
+Privacy Policy for Innovate Inc
 
 Effective Date: June 18, 2025
 
-ExampleCorp ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your personal information when you visit our website, www.examplecorp.com, or use our services (collectively, the "Services"). By accessing our Services, you agree to the terms of this Privacy Policy.
+Innovate Inc ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your personal information when you visit our website, www.InnovateInc.com, or use our services (collectively, the "Services"). By accessing our Services, you agree to the terms of this Privacy Policy.
 
 1. Information We Collect
 
@@ -41,7 +41,7 @@ Depending on your jurisdiction, you may have the right to:
 Access, correct, or delete your personal information.
 Opt out of marketing communications.
 Request data portability.
-To exercise these rights, contact us at privacy@examplecorp.com. We will respond within 30 days.
+To exercise these rights, contact us at privacy@InnovateInc.com. We will respond within 30 days.
 
 7. Third-Party Links
 
@@ -59,12 +59,12 @@ We may update this Privacy Policy periodically. Changes will be posted on our we
 
 For questions or concerns about this Privacy Policy, please contact:
 
-ExampleCorp
+Innovate Inc
 
 1234 Innovation Drive, Suite 100
 
 Tech City, TC 12345
 
-Email: privacy@examplecorp.com
+Email: privacy@InnovateInc.com
 
 Phone: (555) 123-4567
