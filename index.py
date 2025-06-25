@@ -114,31 +114,27 @@ def extract_text_from_url(url):
 
 def get_knowledge_base_content(client_id=None):
     """
-    Reads all admin-uploaded (global) and client-specific documents,
-    labelling each piece of content for the AI.
+    Reads all admin-uploaded (global) documents and, if a client_id is provided,
+    also reads that client's specific documents.
     """
     conn = get_db_connection()
     
-    # Base query for admin docs (user_id = 1)
-    query = 'SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = 1'
-    params = []
+    # Start with a base query for the admin documents (user_id = 1)
+    query = 'SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = ?'
+    # Start with the parameter for the admin user
+    params = [1] 
     
+    # If a client_id is provided, add their documents to the query
     if client_id:
-        # If a client is identified, add their documents to the query
         query += ' OR uploaded_by = ?'
-        params = [client_id]
-
-    # Prepend the 1 for the admin user to the params list for the final query
-    final_params = [1] + params
-    if not client_id:
-        final_params = [1] # If no client_id, just get admin docs
+        params.append(client_id)
         
-    documents = conn.execute(query, tuple(final_params)).fetchall()
+    documents = conn.execute(query, tuple(params)).fetchall()
     conn.close()
     
     knowledge_base = ""
     for doc in documents:
-        # Use display_name for a more readable context marker
+        # Use display_name for a more readable context marker for the AI
         file_label = doc['display_name'] 
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
         
@@ -151,7 +147,6 @@ def get_knowledge_base_content(client_id=None):
                     content = extract_text_from_docx(file_path)
                 
                 if content:
-                    # Clearer context markers for the LLM
                     knowledge_base += f"\n\n--- Start of Knowledge Base Document: {file_label} ---\n"
                     knowledge_base += content
                     knowledge_base += f"\n--- End of Knowledge Base Document: {file_label} ---\n"
