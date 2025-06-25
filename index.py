@@ -555,11 +555,10 @@ def handle_chat():
             client_id = client_row['client_id']
         conn.close()
 
-    # --- RESTRUCTURED CONTEXT GATHERING & PROMPTING ---
+    # --- Context Gathering Logic (No changes here, it is correct) ---
     full_context = ""
-    source_description = ""
     
-    # 1. Check for a direct document upload from the guest first. This has the highest priority.
+    # 1. Prioritize guest-uploaded document
     if 'document' in request.files and request.files['document'].filename != '':
         file = request.files['document']
         if file and allowed_file(file.filename):
@@ -570,59 +569,59 @@ def handle_chat():
                 elif file.filename.lower().endswith('.docx'):
                     guest_doc_content = extract_text_from_docx(file.stream)
                 
-                # If a user uploads a file, we assume their question is about THAT file.
                 full_context += f"--- START User Uploaded Document: {file.filename} ---\n{guest_doc_content}\n--- END User Uploaded Document ---\n\n"
-                source_description = f"the document you uploaded ('{file.filename}')"
             except Exception as e:
                 traceback.print_exc()
                 return jsonify({'error': f'Error processing file: {str(e)}'}), 500
         else:
             return jsonify({'error': 'Invalid file type.'}), 400
             
-    # 2. If no guest document, use the page URL content as the primary context.
+    # 2. Or, use the page URL content as the primary context.
     elif url:
         page_content = extract_text_from_url(url) or ""
         if page_content:
             full_context += f"--- START Current Web Page Content ---\n{page_content}\n--- END Current Web Page Content ---\n\n"
-            source_description = "the current page"
 
-    # 3. Always add the knowledge base (admin + client docs) as supplementary context.
+    # 3. Always add the global and client-specific knowledge base
     knowledge_base_content = get_knowledge_base_content(client_id)
     if knowledge_base_content:
         full_context += f"--- START Knowledge Base Documents ---\n{knowledge_base_content}\n--- END Knowledge Base Documents ---"
-        source_description += " and the site's knowledge base" if source_description else "the site's knowledge base"
 
-
+    # --- NEW, MORE ASSERTIVE PROMPT ---
     try:
         start_time = time.time()
         settings = get_settings()
         keep_alive_value = settings.get('chatbot_timeout', '5m')
 
         if full_context.strip():
-            # This is the new, much more detailed RAG prompt
-            system_prompt = """You are 'Policy Insight', a helpful and precise AI assistant. Your goal is to provide clear, simple answers about policy documents.
+            # This is the RAG prompt that guides the AI on how to use the structured context
+            system_prompt = """You are a helpful AI assistant named Policy Insight. Your only function is to answer questions based on the context provided below.
 
-Your instructions are:
-1.  **Prioritize Information:** Answer the user's question using the following priority of sources:
-    - First, use the "User Uploaded Document", if present.
-    - Second, use the "Current Web Page Content", if present.
-    - Third, use the "Knowledge Base Documents" for general or supplementary information.
-2.  **Resolve Conflicts:** If information from different sources conflicts, assume the User Uploaded Document or the Current Web Page Content is the most up-to-date and correct source.
-3.  **Answer ONLY from Context:** You MUST base your answers strictly on the information within the provided CONTEXT block.
-4.  **Handle Missing Information:** If you cannot find the answer in any of the provided text, you MUST reply with the exact phrase: "I cannot find an answer to your question in the provided document(s)." Do not apologize or add extra phrases.
-5.  **Be Natural:** Do NOT mention the names of the context blocks (e.g., "Based on the User Uploaded Document..."). Just provide the answer directly as if you are an expert who has read the material.
-6.  **Be Clean:** Ignore any file metadata, headers, or footers you see in the text. Do not repeat filenames or email addresses unless they are the direct answer to the user's question. Do not mention your knowledge cutoff date.
-7.  **Formatting:** Use simple markdown (like **bolding** or lists) for clarity. Do not give legal advice."""
-            
+**Rules:**
+1.  **Source Priority:** You MUST prioritize information in this exact order:
+    1.  `User Uploaded Document` (if present)
+    2.  `Current Web Page Content` (if present)
+    3.  `Knowledge Base Documents`
+2.  **Conflict Resolution:** If a newer or more specific document (like a user upload or the current page) contradicts an older one in the knowledge base, the newer one is ALWAYS correct.
+3.  **Strictly Contextual:** Your answer MUST be derived *only* from the text in the provided context. Do not use any external knowledge.
+4.  **Handle Missing Information:** If the answer cannot be found in the provided context, you MUST reply with the single sentence: "I cannot find an answer to your question in the provided document(s)." Do not add apologies or other text.
+5.  **Clean and Natural Responses:**
+    - Do NOT mention the names of the source blocks (e.g., do not say "According to the Knowledge Base...").
+    - Do NOT mention that you are an AI or refer to your knowledge cutoff date.
+    - Provide concise, direct answers using simple markdown for formatting.
+    - Do NOT give legal advice.
+"""
             user_message_content = f"""CONTEXT:
 {full_context[:8000]} 
 
 ---
+Based on the rules and context above, answer the following question.
+
 QUESTION:
 "{query}"
 """
         else:
-            # General knowledge prompt remains the same
+            # This is the general knowledge prompt for when no context is available
             system_prompt = "You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.\n- Do NOT give legal advice.\n- Keep answers concise and clear.\n- Use markdown for formatting."
             user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
 
