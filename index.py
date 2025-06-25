@@ -33,8 +33,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
+        # Create tables (no changes here)
         c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, login_timestamp DATETIME, failed_attempts INTEGER DEFAULT 0)''')
-        # ADDED display_name COLUMN
         c.execute('''CREATE TABLE IF NOT EXISTS documents (
                         id INTEGER PRIMARY KEY, 
                         filename TEXT NOT NULL, 
@@ -50,6 +50,19 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS glossary (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT UNIQUE NOT NULL, definition TEXT NOT NULL)''')
         c.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)''')
         
+        # Populate initial users if table is empty
+        c.execute("SELECT COUNT(*) FROM users")
+        if c.fetchone()[0] == 0:
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('admin', hash_password('admin123'), 'admin'))
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('client', hash_password('client123'), 'client'))
+
+        # --- NEW: Create a permanent, known API key for the 'client' user (ID 2) ---
+        c.execute(
+            "INSERT OR IGNORE INTO api_keys (id, client_id, api_key, purpose, issuance_timestamp) VALUES (?, ?, ?, ?, ?)",
+            (1, 2, '11111111-1111-1111-1111-111111111111', 'Default Key for Policy Page Demo', datetime.now().isoformat())
+        )
+        # --- END NEW ---
+
         if c.execute("SELECT COUNT(*) FROM glossary").fetchone()[0] == 0:
             sample_terms = [
                 ('GDPR', 'The General Data Protection Regulation is a regulation in EU law on data protection and privacy.'),
@@ -58,10 +71,6 @@ def init_db():
                 ('Third-party', 'An entity other than the user or the service provider, who may receive user data.')
             ]
             c.executemany("INSERT INTO glossary (term, definition) VALUES (?, ?)", sample_terms)
-
-        if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('admin', hash_password('admin123'), 'admin'))
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('client', hash_password('client123'), 'client'))
         
         conn.commit()
 
@@ -448,8 +457,13 @@ def client_api_key():
         return redirect(url_for('client_api_key'))
     
     api_keys = conn.execute('SELECT * FROM api_keys WHERE client_id = ? ORDER BY issuance_timestamp DESC', (client_id_to_use,)).fetchall()
+    
+    # --- NEW: Get the base URL to pass to the template ---
+    # This will be 'http://127.0.0.1:5000/' locally and 'https://your-app.onrender.com/' when deployed.
+    base_url = request.host_url
+    
     conn.close()
-    return render_template('client_api_key.html', api_keys=api_keys)
+    return render_template('client_api_key.html', api_keys=api_keys, base_url=base_url)
 
 @app.route('/client/api_key/delete/<int:key_id>', methods=['POST'])
 def client_delete_api_key(key_id):
