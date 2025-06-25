@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:8000"  # Map host port 5000 to container port 8000
+    volumes:
+      # Mount the current directory into the container for live code changes
+      - .:/app
+      # Mount the uploads folder to persist uploaded files outside the container
+      - ./uploads:/app/uploads
+    environment:
+      # This special hostname lets the container talk to your host machine (where Ollama is)
+      # This works on Docker Desktop (Windows/Mac). For Linux, you might need to use --network="host"
+      - OLLAMA_HOST=http://host.docker.internal:11434
