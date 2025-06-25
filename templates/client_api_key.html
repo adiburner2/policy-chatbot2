@@ -103,10 +103,12 @@
                     <span class="badge bg-primary me-2">1</span>Add Required Stylesheets
                 </h6>
                 <p class="text-muted">Place these lines inside your HTML <code><head></code> section.</p>
-                <!-- FIX: Using dynamic base_url variable -->
-                <pre class="bg-light p-3 rounded"><code><!-- Required for widget icons and layout -->
+                
+                <!-- FIX: Using <pre> and escaped HTML for correct rendering -->
+                <pre class="bg-light p-3 rounded small"><code><!-- Required for widget icons and layout -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
 <!-- Your Policy Insight Widget Stylesheet -->
 <link rel="stylesheet" href="{{ base_url }}static/css/widget.css"></code></pre>
             </div>
@@ -115,9 +117,11 @@
                     <span class="badge bg-primary me-2">2</span>Add Widget Script
                 </h6>
                 <p class="text-muted">Place these lines just before the closing <code></body></code> tag.</p>
-                <!-- FIX: Using dynamic base_url variable -->
-                <pre class="bg-light p-3 rounded"><code><!-- Required for widget tooltips -->
+
+                <!-- FIX: Using <pre> and escaped HTML for correct rendering -->
+                <pre class="bg-light p-3 rounded small"><code><!-- Required for widget tooltips -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 <!-- Your Policy Insight Widget Script -->
 <script src="{{ base_url }}static/js/widget.js" data-api-key="YOUR_API_KEY_HERE"></script></code></pre>
             </div>
