@@ -1,5 +1,3 @@
-// --- START OF FILE widget.js ---
-
 // Fixed Widget CSS - Add tooltip z-index styles
 const tooltipStyles = `
 .tooltip-high-z {
@@ -97,8 +95,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = queryInput.value.trim();
         if (!query) return;
 
-        console.log('Form submitted with query:', query); // Debug log
-        console.log('Using API key:', WIDGET_API_KEY); // Debug log
+        console.log('Form submitted with query:', query);
+        console.log('Using API key:', WIDGET_API_KEY);
 
         displayUserMessage(query);
         queryInput.value = '';
@@ -112,10 +110,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = docUploadInput.files[0];
         if (file) {
             formData.append('document', file);
-            console.log('Uploading file:', file.name); // Debug log
+            console.log('Uploading file:', file.name);
         } else {
             formData.append('url', window.location.href);
-            console.log('Using URL:', window.location.href); // Debug log
+            console.log('Using URL:', window.location.href);
         }
 
         // Use the API key we stored when the script loaded
@@ -124,12 +122,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            console.log('Sending POST request to /chat'); // Debug log
+            console.log('Sending POST request to /chat');
             const response = await fetch('/chat', { method: 'POST', body: formData });
-            console.log('Response status:', response.status); // Debug log
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
+            
+            // FIX: Check content type before parsing as JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const textResponse = await response.text();
+                console.error('Expected JSON but got:', textResponse);
+                throw new Error(`Server returned ${response.status}: ${textResponse.substring(0, 200)}...`);
+            }
             
             const data = await response.json();
-            console.log('Response data:', data); // Debug log
+            console.log('Response data:', data);
             
             if (!response.ok) throw new Error(data.error || 'Unknown server error');
             displayBotMessage(data.response, data.duration, data.response_id, data.glossary);

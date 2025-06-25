@@ -114,26 +114,34 @@ def extract_text_from_url(url):
 
 def get_knowledge_base_content(client_id=None):
     """
-    Reads all admin-uploaded (global) documents and, if a client_id is provided,
-    also reads that client's specific documents.
+    Reads all admin-uploaded (global) and client-specific documents,
+    labelling each piece of content for the AI.
     """
     conn = get_db_connection()
     
+    # Base query for admin docs (user_id = 1)
+    query = 'SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = 1'
+    params = []
+    
     if client_id:
-        # Get documents from both admin (ID=1) and the specific client
-        query = 'SELECT filename, filetype FROM documents WHERE uploaded_by = ? OR uploaded_by = ?'
-        params = (1, client_id)
-    else:
-        # Get only admin documents (global)
-        query = 'SELECT filename, filetype FROM documents WHERE uploaded_by = ?'
-        params = (1,)
+        # If a client is identified, add their documents to the query
+        query += ' OR uploaded_by = ?'
+        params = [client_id]
+
+    # Prepend the 1 for the admin user to the params list for the final query
+    final_params = [1] + params
+    if not client_id:
+        final_params = [1] # If no client_id, just get admin docs
         
-    documents = conn.execute(query, params).fetchall()
+    documents = conn.execute(query, tuple(final_params)).fetchall()
     conn.close()
     
     knowledge_base = ""
     for doc in documents:
+        # Use display_name for a more readable context marker
+        file_label = doc['display_name'] 
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+        
         if os.path.exists(file_path):
             try:
                 content = ""
@@ -143,9 +151,10 @@ def get_knowledge_base_content(client_id=None):
                     content = extract_text_from_docx(file_path)
                 
                 if content:
-                    knowledge_base += f"\n\n--- Start of document: {doc['filename']} ---\n"
+                    # Clearer context markers for the LLM
+                    knowledge_base += f"\n\n--- Start of Knowledge Base Document: {file_label} ---\n"
                     knowledge_base += content
-                    knowledge_base += f"\n--- End of document: {doc['filename']} ---\n"
+                    knowledge_base += f"\n--- End of Knowledge Base Document: {file_label} ---\n"
             except Exception as e:
                 print(f"Error reading document {doc['filename']}: {e}")
     return knowledge_base.strip()
@@ -524,57 +533,88 @@ def client_delete_document(doc_id):
 def handle_chat():
     query = request.form.get('query')
     url = request.form.get('url')
-    api_key = request.form.get('api_key') # Get API key from form data
-    document_content, context_source = "", "general knowledge"
+    api_key = request.form.get('api_key') 
+
+    if not query:
+        return jsonify({'error': 'Query cannot be empty.'}), 400
 
     client_id = None
     if api_key:
         conn = get_db_connection()
-        client = conn.execute('SELECT client_id FROM api_keys WHERE api_key = ?', (api_key,)).fetchone()
-        if client:
-            client_id = client['client_id']
+        client_row = conn.execute('SELECT client_id FROM api_keys WHERE api_key = ?', (api_key,)).fetchone()
+        if client_row:
+            client_id = client_row['client_id']
         conn.close()
 
+    # --- RESTRUCTURED CONTEXT GATHERING ---
+    page_content = ""
+    guest_doc_content = ""
+    full_context = ""
+    
+    # 1. Prioritize guest-uploaded document
     if 'document' in request.files and request.files['document'].filename != '':
         file = request.files['document']
         if file and allowed_file(file.filename):
             try:
-                context_source = f"the uploaded document '{file.filename}'"
-                temp_stream = file.stream
-                if file.filename.lower().endswith('.pdf'): document_content += extract_text_from_pdf(temp_stream)
-                elif file.filename.lower().endswith('.docx'): document_content += extract_text_from_docx(temp_stream)
+                if file.filename.lower().endswith('.pdf'):
+                    guest_doc_content = extract_text_from_pdf(file.stream)
+                elif file.filename.lower().endswith('.docx'):
+                    guest_doc_content = extract_text_from_docx(file.stream)
+                full_context += f"--- START User Uploaded Document: {file.filename} ---\n{guest_doc_content}\n--- END User Uploaded Document ---\n\n"
             except Exception as e:
-                traceback.print_exc()
                 return jsonify({'error': f'Error processing file: {str(e)}'}), 500
         else:
-            return jsonify({'error': 'Invalid file type. Please upload PDF or DOCX.'}), 400
+            return jsonify({'error': 'Invalid file type.'}), 400
+    # 2. Or, use the page URL content
     elif url:
-        context_source = "the content from the current web page"
-        document_content += extract_text_from_url(url) or ""
-    
+        page_content = extract_text_from_url(url) or ""
+        if page_content:
+            full_context += f"--- START Current Web Page Content ---\n{page_content}\n--- END Current Web Page Content ---\n\n"
+
+    # 3. Always add the global and client-specific knowledge base
     knowledge_base_content = get_knowledge_base_content(client_id)
     if knowledge_base_content:
-        document_content = knowledge_base_content + "\n\n--- SEPARATOR ---\n\n" + document_content
-        context_source += " and the site's knowledge base"
+        full_context += f"--- START Knowledge Base Documents ---\n{knowledge_base_content}\n--- END Knowledge Base Documents ---"
 
-    if not query: return jsonify({'error': 'Query cannot be empty.'}), 400
-
+    # --- NEW, MORE DETAILED PROMPT ---
     try:
         start_time = time.time()
         settings = get_settings()
-        keep_alive_value = settings.get('chatbot_timeout', '5m') 
+        keep_alive_value = settings.get('chatbot_timeout', '5m')
 
-        if document_content.strip():
-            system_prompt = "You are 'Policy Insight', an AI assistant. Your task is to analyze the provided context and answer questions based ONLY on that context.\n- Analyze the 'CONTEXT' section.\n- Answer the user's 'QUESTION' using ONLY information found in the CONTEXT.\n- If the answer is not in the context, state that you could not find the information in the provided document(s).\n- Do not use outside knowledge. Be concise. Use simple Markdown for formatting. Do not give legal advice."
-            user_message_content = f"CONTEXT from {context_source}:\n---\n{document_content[:8000]}\n---\nQUESTION: \"{query}\""
+        if full_context.strip():
+            # This is the RAG prompt that guides the AI on how to use the structured context
+            system_prompt = """You are 'Policy Insight', a precise AI assistant. Your task is to answer questions based *only* on the context provided. The context is separated into distinct, labeled sections.
+
+Your instructions are:
+1.  Carefully read the user's QUESTION.
+2.  Review all provided context sections, such as 'Current Web Page Content' and 'Knowledge Base Documents'.
+3.  Synthesize your answer using ONLY information found within these context sections.
+4.  If the question is specific to what a user might be seeing on their screen (e.g., "What does this section mean?"), give preference to the 'Current Web Page Content'.
+5.  If the question is more general (e.g., "What is your refund policy?"), information might be in any of the documents.
+6.  **Crucially, if you cannot find the answer in ANY of the provided context, you MUST respond with the exact phrase: "I cannot find an answer to your question in the provided document(s)."** Do not use any external knowledge or make assumptions.
+7.  Keep answers clear, concise, and use simple markdown for formatting. Do not give legal advice.
+"""
+            user_message_content = f"""CONTEXT:
+{full_context[:8000]} 
+
+---
+QUESTION:
+"{query}"
+"""
         else:
+            # This is the general knowledge prompt for when no context is available
             system_prompt = "You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.\n- Do NOT give legal advice.\n- Keep answers concise and clear.\n- Use markdown for formatting."
             user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
 
-        response = ollama.chat(
+        client = ollama.Client(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'))
+        response = client.chat(
             model='phi3:mini',
             options={'keep_alive': keep_alive_value},
-            messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_message_content}]
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_message_content}
+            ]
         )
         
         duration = time.time() - start_time
@@ -583,7 +623,8 @@ def handle_chat():
         response_id = str(uuid.uuid4())
 
         with sqlite3.connect(DATABASE) as conn:
-            conn.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (?, ?, ?, ?, ?)", (query, ai_response_text, datetime.now().isoformat(), response_id, duration))
+            conn.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (?, ?, ?, ?, ?)",
+                         (query, ai_response_text, datetime.now().isoformat(), response_id, duration))
             conn.commit()
 
         conn_glossary = get_db_connection()
@@ -592,8 +633,9 @@ def handle_chat():
         glossary_dict = {term['term']: term['definition'] for term in glossary_terms}
 
         return jsonify({'response': html_response, 'response_id': response_id, 'duration': f"{duration:.2f}", 'glossary': glossary_dict})
+
     except Exception as e:
-        print(f"Chat error: {e}")  
+        print(f"Chat error: {e}")
         traceback.print_exc()
         return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
 
