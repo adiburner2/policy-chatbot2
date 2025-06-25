@@ -123,45 +123,45 @@ def extract_text_from_url(url):
 
 def get_knowledge_base_content(client_id=None):
     """
-    Reads all admin-uploaded (global) documents and, if a client_id is provided,
-    also reads that client's specific documents.
+    Reads documents from the database and separates them into client-specific
+    and admin-level (global) knowledge bases.
     """
     conn = get_db_connection()
     
-    # Start with a base query for the admin documents (user_id = 1)
-    query = 'SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = ?'
-    # Start with the parameter for the admin user
-    params = [1] 
+    # Get admin documents (global knowledge)
+    admin_docs = conn.execute('SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = 1').fetchall()
     
-    # If a client_id is provided, add their documents to the query
+    client_docs = []
     if client_id:
-        query += ' OR uploaded_by = ?'
-        params.append(client_id)
-        
-    documents = conn.execute(query, tuple(params)).fetchall()
+        # Get client-specific documents
+        client_docs = conn.execute('SELECT filename, display_name, filetype FROM documents WHERE uploaded_by = ?', (client_id,)).fetchall()
+    
     conn.close()
     
-    knowledge_base = ""
-    for doc in documents:
-        # Use display_name for a more readable context marker for the AI
-        file_label = doc['display_name'] 
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
-        
-        if os.path.exists(file_path):
-            try:
-                content = ""
-                if doc['filetype'] == 'pdf':
-                    content = extract_text_from_pdf(file_path)
-                elif doc['filetype'] == 'docx':
-                    content = extract_text_from_docx(file_path)
-                
-                if content:
-                    knowledge_base += f"\n\n--- Start of Knowledge Base Document: {file_label} ---\n"
-                    knowledge_base += content
-                    knowledge_base += f"\n--- End of Knowledge Base Document: {file_label} ---\n"
-            except Exception as e:
-                print(f"Error reading document {doc['filename']}: {e}")
-    return knowledge_base.strip()
+    def compile_text(documents):
+        """Helper to convert document rows into a single text block."""
+        text_block = ""
+        for doc in documents:
+            file_label = doc['display_name']
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+            if os.path.exists(file_path):
+                try:
+                    content = ""
+                    if doc['filetype'] == 'pdf':
+                        content = extract_text_from_pdf(file_path)
+                    elif doc['filetype'] == 'docx':
+                        content = extract_text_from_docx(file_path)
+                    
+                    if content:
+                        text_block += f"\n\n--- Document: {file_label} ---\n{content}"
+                except Exception as e:
+                    print(f"Error reading document {doc['filename']}: {e}")
+        return text_block.strip()
+
+    admin_kb = compile_text(admin_docs)
+    client_kb = compile_text(client_docs)
+    
+    return admin_kb, client_kb
 
 def get_settings():
     """Fetches all settings from the DB and returns them as a dictionary."""
@@ -555,10 +555,10 @@ def handle_chat():
             client_id = client_row['client_id']
         conn.close()
 
-    # --- Context Gathering Logic (No changes here, it is correct) ---
-    full_context = ""
-    
-    # 1. Prioritize guest-uploaded document
+    # --- FINALIZED CONTEXT GATHERING LOGIC ---
+    context_blocks = []
+
+    # Priority 1: Guest-uploaded document
     if 'document' in request.files and request.files['document'].filename != '':
         file = request.files['document']
         if file and allowed_file(file.filename):
@@ -569,47 +569,47 @@ def handle_chat():
                 elif file.filename.lower().endswith('.docx'):
                     guest_doc_content = extract_text_from_docx(file.stream)
                 
-                full_context += f"--- START User Uploaded Document: {file.filename} ---\n{guest_doc_content}\n--- END User Uploaded Document ---\n\n"
+                if guest_doc_content:
+                    context_blocks.append(f"--- START User Uploaded Document ---\n{guest_doc_content}\n--- END User Uploaded Document ---")
             except Exception as e:
-                traceback.print_exc()
                 return jsonify({'error': f'Error processing file: {str(e)}'}), 500
         else:
             return jsonify({'error': 'Invalid file type.'}), 400
             
-    # 2. Or, use the page URL content as the primary context.
+    # Priority 2: Page URL content (only if no guest document was uploaded)
     elif url:
         page_content = extract_text_from_url(url) or ""
         if page_content:
-            full_context += f"--- START Current Web Page Content ---\n{page_content}\n--- END Current Web Page Content ---\n\n"
+            context_blocks.append(f"--- START Current Web Page Content ---\n{page_content}\n--- END Current Web Page Content ---")
 
-    # 3. Always add the global and client-specific knowledge base
-    knowledge_base_content = get_knowledge_base_content(client_id)
-    if knowledge_base_content:
-        full_context += f"--- START Knowledge Base Documents ---\n{knowledge_base_content}\n--- END Knowledge Base Documents ---"
+    # Priority 3 & 4: Client and Admin knowledge bases
+    admin_kb, client_kb = get_knowledge_base_content(client_id)
+    if client_kb:
+        context_blocks.append(f"--- START Client-Specific Knowledge Base ---\n{client_kb}\n--- END Client-Specific Knowledge Base ---")
+    if admin_kb:
+        context_blocks.append(f"--- START Global Knowledge Base ---\n{admin_kb}\n--- END Global Knowledge Base ---")
 
-    # --- NEW, MORE ASSERTIVE PROMPT ---
+    full_context = "\n\n".join(context_blocks)
+
     try:
         start_time = time.time()
         settings = get_settings()
         keep_alive_value = settings.get('chatbot_timeout', '5m')
 
         if full_context.strip():
-            # This is the RAG prompt that guides the AI on how to use the structured context
-            system_prompt = """You are a helpful AI assistant named Policy Insight. Your only function is to answer questions based on the context provided below.
+            # Robust RAG prompt
+            system_prompt = """You are 'Policy Insight', a precise AI assistant. Your only function is to answer questions based on the context provided below.
 
-**Rules:**
-1.  **Source Priority:** You MUST prioritize information in this exact order:
-    1.  `User Uploaded Document` (if present)
-    2.  `Current Web Page Content` (if present)
-    3.  `Knowledge Base Documents`
-2.  **Conflict Resolution:** If a newer or more specific document (like a user upload or the current page) contradicts an older one in the knowledge base, the newer one is ALWAYS correct.
-3.  **Strictly Contextual:** Your answer MUST be derived *only* from the text in the provided context. Do not use any external knowledge.
-4.  **Handle Missing Information:** If the answer cannot be found in the provided context, you MUST reply with the single sentence: "I cannot find an answer to your question in the provided document(s)." Do not add apologies or other text.
-5.  **Clean and Natural Responses:**
-    - Do NOT mention the names of the source blocks (e.g., do not say "According to the Knowledge Base...").
-    - Do NOT mention that you are an AI or refer to your knowledge cutoff date.
-    - Provide concise, direct answers using simple markdown for formatting.
-    - Do NOT give legal advice.
+**Rules of Engagement:**
+1.  **Strict Context Adherence:** You MUST base your answers strictly on the information within the provided CONTEXT block. Do not use any external knowledge.
+2.  **Information Hierarchy:** The context is provided in order of importance. Information in earlier blocks (like `User Uploaded Document` or `Client-Specific Knowledge Base`) OVERRIDES information in later blocks (like `Global Knowledge Base`). If you find conflicting information, the information from the most specific source (the one appearing first in the context) is the correct one.
+3.  **Handling "Not Found":** If the answer cannot be found in ANY of the provided context blocks, you MUST reply with the single sentence: `I cannot find an answer to your question in the provided document(s).` Do not apologize or elaborate.
+4.  **Response Style:**
+    *   Provide direct, concise answers.
+    *   Use simple markdown (like **bolding** or lists) for clarity.
+    *   NEVER mention the context blocks (e.g., "According to the Client-Specific Knowledge Base..."). Act as if you know the information directly.
+    *   NEVER mention that you are an AI or refer to a knowledge cutoff date.
+    *   Do NOT give legal advice.
 """
             user_message_content = f"""CONTEXT:
 {full_context[:8000]} 
@@ -621,7 +621,7 @@ QUESTION:
 "{query}"
 """
         else:
-            # This is the general knowledge prompt for when no context is available
+            # General knowledge prompt
             system_prompt = "You are 'Policy Insight', an AI assistant that explains general data privacy and terms of service concepts in simple terms.\n- Do NOT give legal advice.\n- Keep answers concise and clear.\n- Use markdown for formatting."
             user_message_content = f"As a policy expert, please provide a clear and simple explanation for: '{query}'"
 
