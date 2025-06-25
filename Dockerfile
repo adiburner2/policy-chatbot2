@@ -38,4 +38,5 @@ RUN python -c 'import index; index.init_db(); index.init_settings(); \
 EXPOSE 8000
 
 # Define the command to run the app using Gunicorn, a production-ready server
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "index:app"]
+# FIX: Added --timeout 120 to give the AI more time to respond.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "index:app"]
