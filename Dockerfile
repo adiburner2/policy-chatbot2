@@ -8,20 +8,34 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
-# --no-cache-dir reduces image size, and --upgrade pip is good practice
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code into the container
 COPY . .
 
-# Initialize the database and settings when the image is built.
-# This ensures the .db file exists in the container image.
-RUN python -c 'import index; index.init_db(); index.init_settings()'
+# --- START OF CHANGES ---
+
+# Create the uploads directory inside the container
+RUN mkdir -p /app/uploads
+
+# Copy the pre-defined knowledge base files into the container's upload directory
+COPY knowledge_base/ /app/uploads/
+
+# We need to manually add these to the database so the app knows they exist
+# NOTE: This assumes the admin user (ID 1) and client user (ID 2) are created first
+# This is a bit of a "hack" for demo purposes, but effective.
+RUN python -c 'import index; index.init_db(); index.init_settings(); \
+    from index import get_db_connection, datetime; \
+    conn = get_db_connection(); \
+    conn.execute("INSERT OR IGNORE INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)", ("global_rules.pdf", "global_rules.pdf", "pdf", 1000, datetime.now().isoformat(), 1)); \
+    conn.execute("INSERT OR IGNORE INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)", ("client_policy.pdf", "client_policy.pdf", "pdf", 1000, datetime.now().isoformat(), 2)); \
+    conn.commit(); conn.close()'
+
+# --- END OF CHANGES ---
 
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
 # Define the command to run the app using Gunicorn, a production-ready server
-# The bind address 0.0.0.0 is crucial for Docker networking.
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "index:app"]
