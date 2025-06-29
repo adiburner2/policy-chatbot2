@@ -56,7 +56,8 @@
                                 <td><code>{{ key['api_key'][:8] }}...</code></td>
                                 <td>{{ key['purpose'] }}</td>
                                 <td>{{ key['username'] }}</td>
-                                <td>{{ key['issuance_timestamp'].split('T')[0] }}</td>
+                                <!-- FIX: Use strftime to format the datetime object -->
+                                <td>{{ key['issuance_timestamp'].strftime('%Y-%m-%d') }}</td>
                             </tr>
                             {% else %}
                             <tr>

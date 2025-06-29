@@ -59,8 +59,9 @@ endblock %} {% block content %}
               </div>
             </td>
             <td>
+              <!-- FIX: Use strftime to format the datetime object -->
               <span class="text-muted"
-                >{{ key['issuance_timestamp'].split('T')[0] }}</span
+                >{{ key['issuance_timestamp'].strftime('%Y-%m-%d') }}</span
               >
             </td>
             <td class="text-end">

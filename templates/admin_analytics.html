@@ -1,5 +1,5 @@
-{% extends "layout.html" %} {% block title %}Analytics{% endblock %} {%
-block sidebar_links %}
+{% extends "layout.html" %} {% block title %}Analytics{% endblock %} {% block
+sidebar_links %}
 <li class="nav-item">
   <a class="nav-link" href="{{ url_for('admin_dashboard') }}"
     ><i class="fas fa-home fa-fw"></i> Dashboard</a
@@ -144,40 +144,44 @@ block sidebar_links %}
 {% endblock %} {% block scripts %}
 <script>
   // Feedback Score Chart (Doughnut Chart)
-  const feedbackCtx = document.getElementById('feedbackChart').getContext('2d');
-  new Chart(feedbackCtx, {
-      type: 'doughnut',
-      data: {
-          labels: ['Liked', 'Disliked', 'No Feedback'],
-          datasets: [{
-              label: 'Feedback',
-              data: [
-                  {{ analytics.feedback_counts.liked }},
-                  {{ analytics.feedback_counts.disliked }},
-                  {{ analytics.feedback_counts.no_rating }}
-              ],
-              backgroundColor: [
-                  'rgba(25, 135, 84, 0.7)', // Green for Liked
-                  'rgba(220, 53, 69, 0.7)', // Red for Disliked
-                  'rgba(108, 117, 125, 0.7)'  // Grey for No Feedback
-              ],
-              borderColor: [
-                  '#198754',
-                  '#dc3545',
-                  '#6c757d'
-              ],
-              borderWidth: 1,
-              hoverOffset: 4
-          }]
-      },
-      options: {
-          responsive: true,
-          plugins: {
-              legend: {
-                  position: 'top',
+  document.addEventListener('DOMContentLoaded', function() {
+    const feedbackCtx = document.getElementById('feedbackChart');
+    if (feedbackCtx) {
+      new Chart(feedbackCtx.getContext('2d'), {
+          type: 'doughnut',
+          data: {
+              labels: ['Liked', 'Disliked', 'No Feedback'],
+              datasets: [{
+                  label: 'Feedback',
+                  data: [
+                      {{ analytics.feedback_counts.liked }},
+                      {{ analytics.feedback_counts.disliked }},
+                      {{ analytics.feedback_counts.no_rating }}
+                  ],
+                  backgroundColor: [
+                      'rgba(25, 135, 84, 0.7)', // Green for Liked
+                      'rgba(220, 53, 69, 0.7)', // Red for Disliked
+                      'rgba(108, 117, 125, 0.7)'  // Grey for No Feedback
+                  ],
+                  borderColor: [
+                      '#198754',
+                      '#dc3545',
+                      '#6c757d'
+                  ],
+                  borderWidth: 1,
+                  hoverOffset: 4
+              }]
+          },
+          options: {
+              responsive: true,
+              plugins: {
+                  legend: {
+                      position: 'top',
+                  }
               }
           }
-      }
+      });
+    }
   });
 </script>
 {% endblock %}
