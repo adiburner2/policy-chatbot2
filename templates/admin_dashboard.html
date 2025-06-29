@@ -66,10 +66,14 @@
                     {% for doc in recent_docs %}
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>{{ doc[0] }}</strong><br>
-                            <small class="text-muted">Uploaded by Admin on {{ doc[1] }}</small>
+                            <!-- FIX: Use dictionary keys instead of indexes -->
+                            <strong>{{ doc['display_name'] }}</strong><br>
+                            <small class="text-muted">Uploaded on {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}</small>
                         </div>
-                        <a href="#" class="btn btn-sm btn-outline-secondary">View</a>
+                        <!-- FIX: Use the new view document modal -->
+                        <button class="btn btn-sm btn-outline-secondary view-doc-btn" data-doc-id="{{ doc['id'] }}" data-bs-toggle="modal" data-bs-target="#viewDocModal">
+                            View
+                        </button>
                     </li>
                     {% else %}
                     <li class="list-group-item">No recent documents.</li>
@@ -79,6 +83,60 @@
         </div>
     </div>
 </div>
+
+<!-- View Document Modal -->
+<div class="modal fade" id="viewDocModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="viewDocModalTitle">Document Content</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="viewDocModalBody">
+                <div class="text-center p-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading document...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const viewDocModal = document.getElementById('viewDocModal');
+    viewDocModal.addEventListener('show.bs.modal', async function (event) {
+        const button = event.relatedTarget;
+        const docId = button.getAttribute('data-doc-id');
+        const modalTitle = viewDocModal.querySelector('.modal-title');
+        const modalBody = viewDocModal.querySelector('.modal-body');
+
+        // Reset modal
+        modalTitle.textContent = 'Loading...';
+        modalBody.innerHTML = '<div class="text-center p-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Loading document...</p></div>';
+
+        try {
+            const response = await fetch(`/documents/view/${docId}`);
+            if (!response.ok) {
+                throw new Error('Failed to load document.');
+            }
+            const data = await response.json();
+            modalTitle.textContent = data.display_name;
+            // Use a <pre> tag to preserve formatting like line breaks
+            modalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${data.content}</pre>`;
+        } catch (error) {
+            modalTitle.textContent = 'Error';
+            modalBody.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+        }
+    });
+});
+</script>
+
 {% endblock %}
 
 {% block scripts %}

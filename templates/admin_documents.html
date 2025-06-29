@@ -40,7 +40,6 @@
             <td>{{ '%.2f'|format(doc['filesize'] / 1024) }}</td>
              <td>{{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}</td>
             <td class="text-end">
-              <!-- ADD THIS NEW BUTTON -->
               <button
                 class="btn btn-sm btn-outline-primary view-doc-btn"
                 data-doc-id="{{ doc['id'] }}"
@@ -89,7 +88,6 @@
           data-bs-dismiss="modal"
         ></button>
       </div>
-      <!-- FIX: Changed form action to 'admin_documents' -->
       <form
         action="{{ url_for('admin_documents') }}"
         method="post"
@@ -145,9 +143,7 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const viewDocModal = document.getElementById('viewDocModal');
@@ -176,5 +172,5 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
-{% endblock %}
 </script>
+{% endblock %}

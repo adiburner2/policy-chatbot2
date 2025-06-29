@@ -33,7 +33,7 @@ endblock %} {% block content %}
             <th>Type</th>
             <th>Size</th>
             <th>Upload Date</th>
-            <th width="120" class="text-end">Actions</th>
+            <th width="150" class="text-end">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -61,6 +61,16 @@ endblock %} {% block content %}
               >
             </td>
             <td class="text-end">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-info me-1"
+                data-bs-toggle="modal"
+                data-bs-target="#viewDocModal"
+                data-doc-id="{{ doc['id'] }}"
+                title="View document"
+              >
+                <i class="fas fa-eye"></i>
+              </button>
               <form
                 action="{{ url_for('client_delete_document', doc_id=doc['id']) }}"
                 method="post"
@@ -214,18 +224,6 @@ endblock %} {% block content %}
   </div>
 </div>
 
-<script>
-  // Add file size validation
-  document.getElementById("document").addEventListener("change", function (e) {
-    const file = e.target.files[0];
-    if (file && file.size > 10 * 1024 * 1024) {
-      // 10MB limit
-      alert("File size must be less than 10MB");
-      e.target.value = "";
-    }
-  });
-</script>
-
 <!-- View Document Modal -->
 <div class="modal fade" id="viewDocModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -254,35 +252,67 @@ endblock %} {% block content %}
     </div>
   </div>
 </div>
-{% endblock %} {% block scripts %}
+{% endblock %}
+
+{% block scripts %}
 <script>
+  // File size validation
+  document.getElementById("document").addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (file && file.size > 10 * 1024 * 1024) {
+      alert("File size must be less than 10MB");
+      e.target.value = "";
+    }
+  });
+
+  // View document modal handler
   document.addEventListener("DOMContentLoaded", function () {
     const viewDocModal = document.getElementById("viewDocModal");
-    viewDocModal.addEventListener("show.bs.modal", async function (event) {
-      const button = event.relatedTarget;
-      const docId = button.getAttribute("data-doc-id");
-      const modalTitle = viewDocModal.querySelector(".modal-title");
-      const modalBody = viewDocModal.querySelector(".modal-body");
+    
+    if (viewDocModal) {
+      viewDocModal.addEventListener("show.bs.modal", async function (event) {
+        const button = event.relatedTarget;
+        const docId = button.getAttribute("data-doc-id");
+        const modalTitle = viewDocModal.querySelector(".modal-title");
+        const modalBody = viewDocModal.querySelector(".modal-body");
 
-      // Reset modal
-      modalTitle.textContent = "Loading...";
-      modalBody.innerHTML =
-        '<div class="text-center p-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Loading document...</p></div>';
+        // Reset modal
+        modalTitle.textContent = "Loading...";
+        modalBody.innerHTML = `
+          <div class="text-center p-5">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading document...</p>
+          </div>`;
 
-      try {
-        const response = await fetch(`/documents/view/${docId}`);
-        if (!response.ok) {
-          throw new Error("Failed to load document.");
+        try {
+          const response = await fetch(`/documents/view/${docId}`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+          modalTitle.textContent = data.display_name;
+          modalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word; font-family: inherit;">${escapeHtml(data.content)}</pre>`;
+        } catch (error) {
+          console.error('Error loading document:', error);
+          modalTitle.textContent = "Error";
+          modalBody.innerHTML = `<div class="alert alert-danger">Failed to load document: ${error.message}</div>`;
         }
-        const data = await response.json();
-        modalTitle.textContent = data.display_name;
-        // Use a <pre> tag to preserve formatting like line breaks
-        modalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${data.content}</pre>`;
-      } catch (error) {
-        modalTitle.textContent = "Error";
-        modalBody.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
-      }
-    });
+      });
+    }
   });
+
+  // HTML escape function for security
+  function escapeHtml(text) {
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+  }
 </script>
 {% endblock %}
