@@ -49,8 +49,17 @@ def init_db():
             
             c.execute("SELECT COUNT(*) FROM users")
             if c.fetchone()[0] == 0:
-                c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ('admin', hash_password('admin123'), 'admin'))
-                c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ('client', hash_password('client123'), 'client'))
+                c.execute("""
+                    INSERT INTO users (username, password, role) 
+                    VALUES (%s, %s, %s) 
+                    ON CONFLICT (username) DO NOTHING
+                """, ('admin', hash_password('admin123'), 'admin'))
+
+                c.execute("""
+                    INSERT INTO users (username, password, role) 
+                    VALUES (%s, %s, %s) 
+                    ON CONFLICT (username) DO NOTHING
+                """, ('client', hash_password('client123'), 'client'))
 
             c.execute("INSERT INTO api_keys (id, client_id, api_key, purpose, issuance_timestamp) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING", (1, 2, '11111111-1111-1111-1111-111111111111', 'Default Key for Policy Page Demo', datetime.now()))
 

@@ -2,6 +2,7 @@
 
 {% block title %}Manage Documents{% endblock %} 
 
+{% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2>Document Management</h2>
   <button
@@ -144,11 +145,7 @@
         </div>
     </div>
 </div>
-
 {% endblock %}
-
-
-
 
 {% block scripts %}
 <script>
@@ -179,5 +176,5 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
-</script>
 {% endblock %}
+</script>
