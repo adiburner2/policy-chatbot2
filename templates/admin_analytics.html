@@ -105,7 +105,12 @@ sidebar_links %}
           {% for interaction in interactions %}
           <tr>
             <td>
-              {{ interaction['timestamp'].split('.')[0] | replace('T', ' ') }}
+              <!-- FIX: Format datetime object properly -->
+              {% if interaction['timestamp'] %}
+                {{ interaction['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}
+              {% else %}
+                N/A
+              {% endif %}
             </td>
             <td>
               {{ interaction['user_query'][:80] }}{% if
