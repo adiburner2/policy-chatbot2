@@ -38,7 +38,7 @@
             </td>
             <td>{{ doc['filetype'].upper() }}</td>
             <td>{{ '%.2f'|format(doc['filesize'] / 1024) }}</td>
-            <td>{{ doc['upload_timestamp'].split('T')[0] }}</td>
+             <td>{{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}</td>
             <td class="text-end">
               <!-- ADD THIS NEW BUTTON -->
               <button
