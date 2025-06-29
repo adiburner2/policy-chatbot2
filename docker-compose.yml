@@ -11,6 +11,30 @@ services:
       # Mount the uploads folder to persist uploaded files outside the container
       - ./uploads:/app/uploads
     environment:
-      # This special hostname lets the container talk to your host machine (where Ollama is)
-      # This works on Docker Desktop (Windows/Mac). For Linux, you might need to use --network="host"
+      # Ollama connection
       - OLLAMA_HOST=http://host.docker.internal:11434
+      
+      # Database connection - REPLACE WITH YOUR ACTUAL DATABASE_URL
+      - DATABASE_URL=postgresql://policy_insight_db_user:y89daPOrILsk3dHzOQ8HzVX8Kh4m5c2u@dpg-d1gqouqli9vc73b0vp9g-a/policy_insight_db
+      
+      # Flask secret key
+      - FLASK_SECRET_KEY=&icvb%(4ngp-p+m(rt1m1t@y@o@fy0u9oc23++-0!6d8oozx4p
+    
+    # Optional: Add dependency on database service if running PostgreSQL in Docker
+    # depends_on:
+    #   - db
+  
+  # Optional: Uncomment if you want to run PostgreSQL in Docker too
+  # db:
+  #   image: postgres:15
+  #   environment:
+  #     - POSTGRES_DB=policy_insight
+  #     - POSTGRES_USER=policy_user
+  #     - POSTGRES_PASSWORD=secure_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:
