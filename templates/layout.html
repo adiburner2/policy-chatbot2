@@ -68,13 +68,16 @@
         .list-group-item:hover {
             background: rgba(255,255,255,0.1) !important;
             color: white;
-            transform: translateX(4px);
+            /* FIX: Remove transform, use a border instead */
+            /* transform: translateX(4px); */
         }
 
         .list-group-item.active {
             background: rgba(255,255,255,0.2) !important;
             color: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            /* FIX: Add a border for a clean highlight effect */
+            border-left: 4px solid white;
         }
 
         .list-group-item i {

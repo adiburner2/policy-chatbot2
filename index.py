@@ -2,9 +2,8 @@
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, Response
 from functools import wraps
-import sqlite3
 import os
-import hashlib # FIX: Import hashlib at the top
+import hashlib
 from datetime import datetime, timedelta
 import uuid
 import traceback
@@ -15,6 +14,10 @@ import re
 import io
 import csv
 import base64
+
+# FIX: Import PostgreSQL driver and DictCursor for dictionary-like rows
+import psycopg2
+from psycopg2.extras import DictCursor
 import gdrive
 
 # Document/Web Parsing Libraries
@@ -24,17 +27,10 @@ from bs4 import BeautifulSoup
 import requests
 import docx
 
-# --- Setup credentials from environment variable ---
-if 'GOOGLE_CREDENTIALS_BASE64' in os.environ:
-    creds_base64 = os.environ['GOOGLE_CREDENTIALS_BASE64']
-    creds_json = base64.b64decode(creds_base64).decode('utf-8')
-    with open('credentials.json', 'w') as f:
-        f.write(creds_json)
-
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-very-secret-key-that-is-long-and-secure')
-DATABASE = 'policy_chatbot.db'
-# This is now just a temporary location for file uploads before they go to GDrive
+# FIX: DATABASE_URL is now the single source of truth for the database connection
+DATABASE_URL = os.getenv('DATABASE_URL')
 UPLOAD_FOLDER = 'temp_uploads' 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx'}
@@ -42,38 +38,47 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # --- Database Initialization ---
 def init_db():
-    with sqlite3.connect(DATABASE) as conn:
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, login_timestamp DATETIME, failed_attempts INTEGER DEFAULT 0)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, filename TEXT NOT NULL, display_name TEXT NOT NULL, filetype TEXT NOT NULL, filesize INTEGER NOT NULL, upload_timestamp DATETIME, uploaded_by INTEGER, FOREIGN KEY(uploaded_by) REFERENCES users(id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY, client_id INTEGER, api_key TEXT NOT NULL, purpose TEXT, issuance_timestamp DATETIME, FOREIGN KEY(client_id) REFERENCES users(id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS interactions (id INTEGER PRIMARY KEY, user_query TEXT, ai_response TEXT, timestamp DATETIME, feedback_score INTEGER, feedback_comment TEXT, response_id TEXT, response_time_seconds REAL)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS glossary (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT UNIQUE NOT NULL, definition TEXT NOT NULL)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)''')
-        
-        if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('admin', hash_password('admin123'), 'admin'))
-            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('client', hash_password('client123'), 'client'))
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as c:
+            c.execute('''CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, login_timestamp TIMESTAMPTZ, failed_attempts INTEGER DEFAULT 0)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, filename TEXT NOT NULL, display_name TEXT NOT NULL, filetype TEXT NOT NULL, filesize INTEGER NOT NULL, upload_timestamp TIMESTAMPTZ, uploaded_by INTEGER, FOREIGN KEY(uploaded_by) REFERENCES users(id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS api_keys (id SERIAL PRIMARY KEY, client_id INTEGER, api_key TEXT NOT NULL, purpose TEXT, issuance_timestamp TIMESTAMPTZ, FOREIGN KEY(client_id) REFERENCES users(id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS interactions (id SERIAL PRIMARY KEY, user_query TEXT, ai_response TEXT, timestamp TIMESTAMPTZ, feedback_score INTEGER, feedback_comment TEXT, response_id TEXT, response_time_seconds REAL)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS glossary (id SERIAL PRIMARY KEY, term TEXT UNIQUE NOT NULL, definition TEXT NOT NULL)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)''')
+            
+            c.execute("SELECT COUNT(*) FROM users")
+            if c.fetchone()[0] == 0:
+                c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ('admin', hash_password('admin123'), 'admin'))
+                c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ('client', hash_password('client123'), 'client'))
 
-        c.execute("INSERT OR IGNORE INTO api_keys (id, client_id, api_key, purpose, issuance_timestamp) VALUES (?, ?, ?, ?, ?)", (1, 2, '11111111-1111-1111-1111-111111111111', 'Default Key for Policy Page Demo', datetime.now().isoformat()))
+            c.execute("INSERT INTO api_keys (id, client_id, api_key, purpose, issuance_timestamp) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING", (1, 2, '11111111-1111-1111-1111-111111111111', 'Default Key for Policy Page Demo', datetime.now()))
 
-        if c.execute("SELECT COUNT(*) FROM glossary").fetchone()[0] == 0:
-            sample_terms = [('GDPR', 'The General Data Protection Regulation is a regulation in EU law on data protection and privacy.'), ('Cookies', 'Small files stored on a user\'s computer by their web browser at the request of a website.'), ('Personal Data', 'Any information that relates to an identified or identifiable individual.'), ('Third-party', 'An entity other than the user or the service provider, who may receive user data.')]
-            c.executemany("INSERT INTO glossary (term, definition) VALUES (?, ?)", sample_terms)
-        
-        conn.commit()
+            c.execute("SELECT COUNT(*) FROM glossary")
+            if c.fetchone()[0] == 0:
+                sample_terms = [
+                    ('Severance Procedure', 'A surgical procedure that separates an employee\'s work memories ("innie") from their personal life memories ("outie").'),
+                    ('Innie', 'The consciousness of a severed employee that exists only within the confines of the severed floor at Lumon Industries.'),
+                    ('Outie', 'The consciousness of a severed employee that exists in the outside world, unaware of their "innie"\'s experiences.'),
+                    ('Macrodata Refinement', 'A mysterious task performed by severed employees, involving sorting numbers on a screen into digital bins based on their emotional feel.'),
+                    ('The Break Room', 'A disciplinary room where employees are forced to repeatedly read a statement of contrition until they achieve sincere remorse.'),
+                    ('Waffle Party', 'A coveted reward for a department that meets its quarterly quota, involving waffles and other special privileges.'),
+                    ('Kier Eagan', 'The revered and cult-like founder of Lumon Industries, whose philosophies govern the company.')
+                ]
+                c.executemany("INSERT INTO glossary (term, definition) VALUES (%s, %s)", sample_terms)
+            conn.commit()
 
 def init_settings():
-    with sqlite3.connect(DATABASE) as conn:
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ('chatbot_enabled', 'true'))
-        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ('chatbot_timeout', '5m'))
-        conn.commit()
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as c:
+            c.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", ('chatbot_enabled', 'true'))
+            c.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", ('chatbot_timeout', '5m'))
+            conn.commit()
 
 # --- Utility Functions ---
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.cursor_factory = DictCursor
     return conn
 
 def hash_password(password):
@@ -105,43 +110,85 @@ def extract_text_from_url(url):
         print(f"Error fetching URL {url}: {e}")
         return None
 
-def get_knowledge_base_content(client_id=None):
-    conn = get_db_connection()
-    # Query for documents uploaded by the admin (global docs)
-    admin_docs_query = 'SELECT filename, display_name, filetype, upload_timestamp FROM documents WHERE uploaded_by = 1 ORDER BY upload_timestamp ASC'
-    admin_docs = conn.execute(admin_docs_query).fetchall()
-    
-    client_docs = []
-    if client_id:
-        # Query for documents uploaded by the specific client
-        client_docs_query = 'SELECT filename, display_name, filetype, upload_timestamp FROM documents WHERE uploaded_by = ? ORDER BY upload_timestamp ASC'
-        client_docs = conn.execute(client_docs_query, (client_id,)).fetchall()
-    
-    conn.close()
-    
-    def compile_text(documents):
-        text_block = ""
-        for doc in documents:
-            file_id, display_name, timestamp_str = doc['filename'], doc['display_name'], doc['upload_timestamp'].split('T')[0]
-            try:
-                file_stream = gdrive.download_file(file_id)
-                content = ""
-                if doc['filetype'] == 'pdf': content = extract_text_from_pdf(file_stream)
-                elif doc['filetype'] == 'docx': content = extract_text_from_docx(file_stream)
-                if content:
-                    text_block += f"\n\n--- Document: {display_name} (Uploaded: {timestamp_str}) ---\n{content}"
-            except Exception as e:
-                print(f"Error reading document {display_name} (ID: {file_id}) from Drive: {e}")
-        return text_block.strip()
+def get_smart_knowledge_base_content(query, client_id=None):
+    """
+    Finds the most relevant documents from the knowledge base using keyword matching.
+    """
+    # 1. Extract keywords from the user's query
+    stop_words = set(['what', 'is', 'the', 'are', 'a', 'an', 'in', 'of', 'for', 'to', 'how', 'do', 'i', 'tell', 'me', 'about'])
+    cleaned_query = re.sub(r'[^\w\s]', '', query).lower()
+    keywords = {word for word in cleaned_query.split() if word not in stop_words and len(word) > 2}
 
-    admin_kb = compile_text(admin_docs)
-    client_kb = compile_text(client_docs)
+    if not keywords:
+        return "" # No keywords to search for
+
+    # 2. Get all potential documents from the database
+    conn = get_db_connection()
+    with conn.cursor() as c:
+        c.execute('SELECT id, filename, display_name, filetype, upload_timestamp FROM documents WHERE uploaded_by = 1 ORDER BY upload_timestamp DESC')
+        admin_docs = c.fetchall()
+        
+        client_docs = []
+        if client_id:
+            c.execute('SELECT id, filename, display_name, filetype, upload_timestamp FROM documents WHERE uploaded_by = %s ORDER BY upload_timestamp DESC', (client_id,))
+            client_docs = c.fetchall()
+    conn.close()
+
+    # 3. Score and rank documents based on keyword matches
+    def find_relevant_docs(documents, doc_type="Global"):
+        relevant_docs = []
+        for doc in documents:
+            try:
+                file_stream = gdrive.download_file(doc['filename'])
+                content = ""
+                if doc['filetype'] == 'pdf':
+                    content = extract_text_from_pdf(file_stream)
+                elif doc['filetype'] == 'docx':
+                    content = extract_text_from_docx(file_stream)
+
+                if not content:
+                    continue
+
+                # Score the document by counting unique keyword matches
+                score = 0
+                matched_keywords = set()
+                for keyword in keywords:
+                    if keyword in content.lower():
+                        score += 1
+                        matched_keywords.add(keyword)
+                
+                if score > 0:
+                    timestamp_str = doc['upload_timestamp'].isoformat().split('T')[0]
+                    # The text block now includes metadata for context
+                    formatted_text = f"--- Document: {doc['display_name']} (Uploaded: {timestamp_str}, Type: {doc_type}) ---\n{content}"
+                    relevant_docs.append({'score': score, 'text': formatted_text, 'matched': list(matched_keywords)})
+
+            except Exception as e:
+                print(f"Error processing document {doc['display_name']} (ID: {doc['id']}) for relevance: {e}")
+        return relevant_docs
+
+    # Process both client and global documents
+    all_relevant_docs = find_relevant_docs(client_docs, "Client-Specific") + find_relevant_docs(admin_docs, "Global")
+
+    # 4. Sort by score (highest first) and take the best ones
+    all_relevant_docs.sort(key=lambda x: x['score'], reverse=True)
     
-    return admin_kb, client_kb
+    # You can adjust this number. 2-3 is usually good for smaller models.
+    TOP_N_DOCS = 3 
+    top_docs = all_relevant_docs[:TOP_N_DOCS]
+    
+    if not top_docs:
+        return ""
+
+    # 5. Assemble the final context block
+    final_context = "\n\n".join([doc['text'] for doc in top_docs])
+    return f"--- START Relevant Knowledge Base Documents ---\n{final_context}\n--- END Relevant Knowledge Base Documents ---"
 
 def get_settings():
     conn = get_db_connection()
-    settings_data = conn.execute('SELECT key, value FROM settings').fetchall()
+    with conn.cursor() as c:
+        c.execute('SELECT key, value FROM settings')
+        settings_data = c.fetchall()
     conn.close()
     return {row['key']: row['value'] for row in settings_data}
 
@@ -155,9 +202,10 @@ def login_required(role="ANY"):
                 flash('Please log in to access this page.', 'warning')
                 return redirect(url_for('login'))
             
-            # FIX: Verify user still exists in the database
             conn = get_db_connection()
-            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            with conn.cursor() as c:
+                c.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+                user = c.fetchone()
             conn.close()
             
             if not user:
@@ -167,26 +215,21 @@ def login_required(role="ANY"):
 
             if role != "ANY" and user['role'] != role:
                 flash('You do not have permission to access that page.', 'danger')
-                # Redirect to their own dashboard
                 return redirect(url_for(f"{user['role']}_dashboard"))
             
             return f(*args, **kwargs)
         return decorated_function
     return decorator
 
-
 # --- CORE & LOGIN ROUTES ---
-
 @app.route('/')
 def home():
-    # This is the new public-facing homepage
     return render_template('home.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # If user is already logged in, redirect them to their dashboard
     if 'user_id' in session:
-        role = session.get('role', 'client') # Default to client if role isn't set
+        role = session.get('role', 'client')
         return redirect(url_for(f'{role}_dashboard'))
 
     if request.method == 'POST':
@@ -194,8 +237,9 @@ def login():
         password = request.form['password']
         hashed_password = hash_password(password)
         conn = get_db_connection()
-        user_data = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        conn.close()
+        with conn.cursor() as c:
+            c.execute('SELECT * FROM users WHERE username = %s', (username,))
+            user_data = c.fetchone()
         
         is_password_correct = user_data and (user_data['password'] == hashed_password)
 
@@ -206,18 +250,19 @@ def login():
             session['username'] = user['username']
             session['role'] = user['role']
             
-            with get_db_connection() as conn:
-                conn.execute('UPDATE users SET login_timestamp = ?, failed_attempts = 0 WHERE id = ?', (datetime.now(), user['id']))
-                conn.commit()
-            
+            with conn.cursor() as c:
+                c.execute('UPDATE users SET login_timestamp = %s, failed_attempts = 0 WHERE id = %s', (datetime.now(), user['id']))
+            conn.commit()
             flash(f'Welcome, {user["username"]}!', 'success')
+            conn.close()
             return redirect(url_for(f"{user['role']}_dashboard"))
         else:
             if user_data:
-                with get_db_connection() as conn:
-                    conn.execute('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?', (user_data['id'],))
-                    conn.commit()
+                with conn.cursor() as c:
+                    c.execute('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = %s', (user_data['id'],))
+                conn.commit()
             flash('Invalid username or password.', 'danger')
+            conn.close()
             return redirect(url_for('login'))
     return render_template('login.html')
 
@@ -231,14 +276,7 @@ def logout():
 @app.route('/lumon/signup')
 def lumon_signup():
     settings = get_settings()
-    # The widget will only appear on this page.
     return render_template('severance_signup.html', settings=settings, show_widget=True)
-
-# @app.route('/policy-page')
-# def policy_example():
-#     settings = get_settings()
-#     content = "This is a demonstration page for the Policy Insight chatbot. Ask a question to begin."
-#     return render_template('policy_page.html', content=content, settings=settings)
 
 # --- ADMIN ROUTES ---
 @app.route('/admin/')
@@ -250,18 +288,23 @@ def admin_index():
 @login_required(role="admin")
 def admin_dashboard():
     conn = get_db_connection()
-    total_docs = conn.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    queries_today = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = DATE(?)', (today_start.isoformat(),)).fetchone()[0]
-    avg_response_time = conn.execute('SELECT AVG(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()[0] or 0
-    recent_docs = conn.execute('SELECT display_name, upload_timestamp FROM documents ORDER BY upload_timestamp DESC LIMIT 5').fetchall()
-    labels, data = [], []
-    for i in range(6, -1, -1):
-        day = datetime.now() - timedelta(days=i)
-        day_str = day.strftime('%Y-%m-%d')
-        labels.append(day.strftime('%a'))
-        count = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = ?', (day_str,)).fetchone()[0]
-        data.append(count)
+    with conn.cursor() as c:
+        c.execute('SELECT COUNT(*) FROM documents')
+        total_docs = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = CURRENT_DATE')
+        queries_today = c.fetchone()[0]
+        c.execute('SELECT AVG(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL')
+        avg_response_time = c.fetchone()[0] or 0
+        c.execute('SELECT display_name, upload_timestamp FROM documents ORDER BY upload_timestamp DESC LIMIT 5')
+        recent_docs = c.fetchall()
+        labels, data = [], []
+        for i in range(6, -1, -1):
+            day = datetime.now() - timedelta(days=i)
+            day_str = day.strftime('%Y-%m-%d')
+            labels.append(day.strftime('%a'))
+            c.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = %s', (day_str,))
+            count = c.fetchone()[0]
+            data.append(count)
     conn.close()
     stats = {'total_docs': total_docs, 'queries_today': queries_today, 'avg_response_time': avg_response_time}
     daily_queries = {'labels': labels, 'data': data}
@@ -270,9 +313,9 @@ def admin_dashboard():
 @app.route('/admin/documents', methods=['GET', 'POST'])
 @login_required(role="admin")
 def admin_documents():
-    admin_id = session['user_id']
     conn = get_db_connection()
     if request.method == 'POST':
+        admin_id = session['user_id']
         if 'document' not in request.files or not request.files['document'].filename:
             flash('No file selected', 'warning')
             return redirect(request.url)
@@ -290,8 +333,9 @@ def admin_documents():
         try:
             mimetype = 'application/pdf' if filetype == 'pdf' else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
             drive_file_id = gdrive.upload_file(file_stream, original_filename, mimetype)
-            conn.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
-                         (drive_file_id, original_filename, filetype, filesize, datetime.now().isoformat(), admin_id))
+            with conn.cursor() as c:
+                c.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (%s, %s, %s, %s, %s, %s)',
+                         (drive_file_id, original_filename, filetype, filesize, datetime.now(), admin_id))
             conn.commit()
             flash('Document uploaded successfully to Global Knowledge Base!', 'success')
         except Exception as e:
@@ -301,8 +345,9 @@ def admin_documents():
             conn.close()
         return redirect(url_for('admin_documents'))
     
-    # Show only documents uploaded by any admin (assuming user_id 1 is the main admin)
-    documents = conn.execute('SELECT d.* FROM documents d JOIN users u ON d.uploaded_by = u.id WHERE u.role = ? ORDER BY d.upload_timestamp DESC', ('admin',)).fetchall()
+    with conn.cursor() as c:
+        c.execute('SELECT d.*, u.username FROM documents d JOIN users u ON d.uploaded_by = u.id WHERE u.role = %s ORDER BY d.upload_timestamp DESC', ('admin',))
+        documents = c.fetchall()
     conn.close()
     return render_template('admin_documents.html', documents=documents)
 
@@ -310,17 +355,19 @@ def admin_documents():
 @login_required(role="admin")
 def admin_delete_document(doc_id):
     conn = get_db_connection()
-    doc = conn.execute('SELECT d.filename, d.display_name FROM documents d JOIN users u ON d.uploaded_by = u.id WHERE d.id = ? AND u.role = ?', (doc_id, 'admin')).fetchone()
-    if doc:
-        try:
-            gdrive.delete_file(doc['filename']) 
-            conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
-            conn.commit()
-            flash(f"Document '{doc['display_name']}' deleted successfully.", 'success')
-        except Exception as e:
-            flash(f"Error deleting document: {e}", 'danger')
-    else:
-        flash('Document not found or you do not have permission to delete.', 'danger')
+    with conn.cursor() as c:
+        c.execute('SELECT d.filename, d.display_name FROM documents d JOIN users u ON d.uploaded_by = u.id WHERE d.id = %s AND u.role = %s', (doc_id, 'admin'))
+        doc = c.fetchone()
+        if doc:
+            try:
+                gdrive.delete_file(doc['filename']) 
+                c.execute('DELETE FROM documents WHERE id = %s', (doc_id,))
+                conn.commit()
+                flash(f"Document '{doc['display_name']}' deleted successfully.", 'success')
+            except Exception as e:
+                flash(f"Error deleting document: {e}", 'danger')
+        else:
+            flash('Document not found or you do not have permission to delete.', 'danger')
     conn.close()
     return redirect(url_for('admin_documents'))
 
@@ -328,14 +375,24 @@ def admin_delete_document(doc_id):
 @login_required(role="admin")
 def admin_analytics():
     conn = get_db_connection()
-    interactions = conn.execute('SELECT * FROM interactions ORDER BY timestamp DESC').fetchall()
-    feedback_counts = {
-        'liked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = 1').fetchone()[0],
-        'disliked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = -1').fetchone()[0],
-        'no_rating': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score IS NULL OR feedback_score = 0').fetchone()[0]
-    }
-    timing_data = conn.execute('SELECT AVG(response_time_seconds), MIN(response_time_seconds), MAX(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()
-    all_queries = conn.execute('SELECT user_query FROM interactions').fetchall()
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM interactions ORDER BY timestamp DESC')
+        interactions = c.fetchall()
+        c.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = 1')
+        liked_count = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = -1')
+        disliked_count = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score IS NULL OR feedback_score = 0')
+        no_rating_count = c.fetchone()[0]
+        feedback_counts = {'liked': liked_count, 'disliked': disliked_count, 'no_rating': no_rating_count}
+        
+        c.execute('SELECT AVG(response_time_seconds), MIN(response_time_seconds), MAX(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL')
+        timing_data = c.fetchone()
+        
+        c.execute('SELECT user_query FROM interactions')
+        all_queries = c.fetchall()
+    conn.close()
+    
     words = []
     stop_words = set(['what', 'is', 'the', 'are', 'a', 'an', 'in', 'of', 'for', 'to', 'how', 'do', 'i'])
     for row in all_queries:
@@ -344,7 +401,7 @@ def admin_analytics():
         words.extend([word for word in cleaned_query.split() if word not in stop_words and len(word) > 2])
     popular_terms = [term for term, count in Counter(words).most_common(5)]
     analytics_data = {'feedback_counts': feedback_counts, 'avg_response_time': timing_data[0] or 0, 'min_response_time': timing_data[1] or 0, 'max_response_time': timing_data[2] or 0, 'popular_terms': popular_terms}
-    conn.close()
+    
     return render_template('admin_analytics.html', interactions=interactions, analytics=analytics_data)
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
@@ -352,37 +409,43 @@ def admin_analytics():
 def admin_settings():
     conn = get_db_connection()
     if request.method == 'POST':
-        if 'add_user' in request.form:
-            username, password, role = request.form.get('username'), request.form.get('password'), request.form.get('role')
-            if username and password and role:
-                try:
-                    conn.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', (username, hash_password(password), role))
-                    conn.commit()
-                    flash('User added successfully.', 'success')
-                except sqlite3.IntegrityError:
-                    flash('Username already exists.', 'danger')
-            else:
-                flash('All fields are required to add a user.', 'warning')
-        elif 'save_settings' in request.form:
-            chatbot_enabled = request.form.get('chatbot_enabled')
-            chatbot_timeout = request.form.get('chatbot_timeout')
-            chatbot_enabled_value = 'true' if chatbot_enabled == 'on' else 'false'
-            c = conn.cursor()
-            c.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_enabled_value, 'chatbot_enabled'))
-            c.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_timeout, 'chatbot_timeout'))
-            conn.commit()
-            flash('Chatbot settings updated successfully.', 'success')
+        with conn.cursor() as c:
+            if 'add_user' in request.form:
+                username, password, role = request.form.get('username'), request.form.get('password'), request.form.get('role')
+                if username and password and role:
+                    try:
+                        c.execute('INSERT INTO users (username, password, role) VALUES (%s, %s, %s)', (username, hash_password(password), role))
+                        conn.commit()
+                        flash('User added successfully.', 'success')
+                    except psycopg2.IntegrityError:
+                        conn.rollback()
+                        flash('Username already exists.', 'danger')
+                else:
+                    flash('All fields are required to add a user.', 'warning')
+            elif 'save_settings' in request.form:
+                chatbot_enabled = request.form.get('chatbot_enabled')
+                chatbot_timeout = request.form.get('chatbot_timeout')
+                chatbot_enabled_value = 'true' if chatbot_enabled == 'on' else 'false'
+                c.execute("UPDATE settings SET value = %s WHERE key = %s", (chatbot_enabled_value, 'chatbot_enabled'))
+                c.execute("UPDATE settings SET value = %s WHERE key = %s", (chatbot_timeout, 'chatbot_timeout'))
+                conn.commit()
+                flash('Chatbot settings updated successfully.', 'success')
         conn.close()
         return redirect(url_for('admin_settings'))
 
-    users = conn.execute('SELECT id, username, role FROM users').fetchall()
-    api_keys = conn.execute('''
-        SELECT api_keys.id, api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp 
-        FROM api_keys JOIN users ON api_keys.client_id = users.id
-        ORDER BY api_keys.issuance_timestamp DESC
-    ''').fetchall()
-    current_settings = get_settings()
+    with conn.cursor() as c:
+        c.execute('SELECT id, username, role FROM users')
+        users = c.fetchall()
+        c.execute('''
+            SELECT api_keys.id, api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp 
+            FROM api_keys JOIN users ON api_keys.client_id = users.id
+            ORDER BY api_keys.issuance_timestamp DESC
+        ''')
+        api_keys = c.fetchall()
+        c.execute('SELECT key, value FROM settings')
+        settings_data = c.fetchall()
     conn.close()
+    current_settings = {row['key']: row['value'] for row in settings_data}
     db_info = {'name': 'Google Drive (via API)', 'model': 'phi3:mini'} 
     return render_template('admin_settings.html', users=users, api_keys=api_keys, db_info=db_info, settings=current_settings)
 
@@ -394,11 +457,13 @@ def admin_delete_user(user_id):
         return redirect(url_for('admin_settings'))
     conn = get_db_connection()
     try:
-        conn.execute('DELETE FROM api_keys WHERE client_id = ?', (user_id,))
-        conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        with conn.cursor() as c:
+            c.execute('DELETE FROM api_keys WHERE client_id = %s', (user_id,))
+            c.execute('DELETE FROM users WHERE id = %s', (user_id,))
         conn.commit()
         flash('User and their associated API keys have been deleted.', 'success')
     except Exception as e:
+        conn.rollback()
         flash(f'Error deleting user: {e}', 'danger')
     finally:
         conn.close()
@@ -412,15 +477,20 @@ def admin_glossary():
         term, definition = request.form['term'], request.form['definition']
         if term and definition:
             try:
-                conn.execute('INSERT INTO glossary (term, definition) VALUES (?, ?)', (term, definition))
+                with conn.cursor() as c:
+                    c.execute('INSERT INTO glossary (term, definition) VALUES (%s, %s)', (term, definition))
                 conn.commit()
                 flash(f'Term "{term}" added successfully!', 'success')
-            except sqlite3.IntegrityError:
+            except psycopg2.IntegrityError:
+                conn.rollback()
                 flash(f'Term "{term}" already exists.', 'danger')
         else:
             flash('Both term and definition are required.', 'warning')
         return redirect(url_for('admin_glossary'))
-    glossary_terms = conn.execute('SELECT * FROM glossary ORDER BY term').fetchall()
+    
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM glossary ORDER BY term')
+        glossary_terms = c.fetchall()
     conn.close()
     return render_template('admin_glossary.html', glossary_terms=glossary_terms)
 
@@ -428,7 +498,8 @@ def admin_glossary():
 @login_required(role="admin")
 def admin_delete_term(term_id):
     conn = get_db_connection()
-    conn.execute('DELETE FROM glossary WHERE id = ?', (term_id,))
+    with conn.cursor() as c:
+        c.execute('DELETE FROM glossary WHERE id = %s', (term_id,))
     conn.commit()
     conn.close()
     flash('Term deleted successfully.', 'success')
@@ -440,14 +511,16 @@ def admin_delete_term(term_id):
 def client_dashboard():
     client_id = session['user_id']
     conn = get_db_connection()
-    # Placeholder analytics
-    queries_today = conn.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = DATE("now")').fetchone()[0]
-    queries_this_month = conn.execute('SELECT COUNT(*) FROM interactions WHERE STRFTIME("%Y-%m", timestamp) = STRFTIME("%Y-%m", "now")').fetchone()[0]
-    api_key_count = conn.execute('SELECT COUNT(*) FROM api_keys WHERE client_id = ?', (client_id,)).fetchone()[0]
-    stats = {'queries_today': queries_today, 'queries_this_month': queries_this_month, 'status': 'Active', 'api_key_count': api_key_count}
+    with conn.cursor() as c:
+        c.execute('SELECT COUNT(*) FROM interactions WHERE DATE(timestamp) = CURRENT_DATE')
+        queries_today = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM interactions WHERE DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', CURRENT_DATE)")
+        queries_this_month = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM api_keys WHERE client_id = %s', (client_id,))
+        api_key_count = c.fetchone()[0]
     conn.close()
+    stats = {'queries_today': queries_today, 'queries_this_month': queries_this_month, 'status': 'Active', 'api_key_count': api_key_count}
     return render_template('client_dashboard.html', stats=stats)
-
 
 @app.route('/client/api_key', methods=['GET', 'POST'])
 @login_required(role="client")
@@ -457,15 +530,18 @@ def client_api_key():
     if request.method == 'POST':
         purpose = request.form.get('purpose', 'General Use')
         api_key = str(uuid.uuid4())
-        conn.execute('INSERT INTO api_keys (client_id, api_key, purpose, issuance_timestamp) VALUES (?, ?, ?, ?)',
-                     (client_id, api_key, purpose, datetime.now().isoformat()))
+        with conn.cursor() as c:
+            c.execute('INSERT INTO api_keys (client_id, api_key, purpose, issuance_timestamp) VALUES (%s, %s, %s, %s)',
+                     (client_id, api_key, purpose, datetime.now()))
         conn.commit()
         flash(f'New API Key generated for "{purpose}"!', 'success')
         conn.close()
         return redirect(url_for('client_api_key'))
     
-    api_keys = conn.execute('SELECT * FROM api_keys WHERE client_id = ? ORDER BY issuance_timestamp DESC', (client_id,)).fetchall()
-    base_url = request.host_url.replace('http://', 'https://') # Force https for production
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM api_keys WHERE client_id = %s ORDER BY issuance_timestamp DESC', (client_id,))
+        api_keys = c.fetchall()
+    base_url = request.host_url.replace('http://', 'https://')
     conn.close()
     return render_template('client_api_key.html', api_keys=api_keys, base_url=base_url)
 
@@ -474,13 +550,15 @@ def client_api_key():
 def client_delete_api_key(key_id):
     client_id = session['user_id']
     conn = get_db_connection()
-    key = conn.execute('SELECT * FROM api_keys WHERE id = ? AND client_id = ?', (key_id, client_id)).fetchone()
-    if key:
-        conn.execute('DELETE FROM api_keys WHERE id = ?', (key_id,))
-        conn.commit()
-        flash('API Key revoked successfully.', 'success')
-    else:
-        flash('API Key not found or you do not have permission to revoke it.', 'danger')
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM api_keys WHERE id = %s AND client_id = %s', (key_id, client_id))
+        key = c.fetchone()
+        if key:
+            c.execute('DELETE FROM api_keys WHERE id = %s', (key_id,))
+            conn.commit()
+            flash('API Key revoked successfully.', 'success')
+        else:
+            flash('API Key not found or you do not have permission to revoke it.', 'danger')
     conn.close()
     return redirect(url_for('client_api_key'))
 
@@ -508,8 +586,9 @@ def client_documents():
         try:
             mimetype = 'application/pdf' if filetype == 'pdf' else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
             drive_file_id = gdrive.upload_file(file_stream, safe_filename, mimetype)
-            conn.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
-                         (drive_file_id, original_filename, filetype, filesize, datetime.now().isoformat(), client_id))
+            with conn.cursor() as c:
+                c.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by) VALUES (%s, %s, %s, %s, %s, %s)',
+                         (drive_file_id, original_filename, filetype, filesize, datetime.now(), client_id))
             conn.commit()
             flash(f"Document '{original_filename}' uploaded successfully!", 'success')
         except Exception as e:
@@ -519,7 +598,9 @@ def client_documents():
             conn.close()
         return redirect(url_for('client_documents'))
     
-    documents = conn.execute('SELECT * FROM documents WHERE uploaded_by = ? ORDER BY upload_timestamp DESC', (client_id,)).fetchall()
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM documents WHERE uploaded_by = %s ORDER BY upload_timestamp DESC', (client_id,))
+        documents = c.fetchall()
     conn.close()
     return render_template('client_documents.html', documents=documents)
 
@@ -528,17 +609,19 @@ def client_documents():
 def client_delete_document(doc_id):
     client_id = session['user_id']
     conn = get_db_connection()
-    doc = conn.execute('SELECT filename, display_name FROM documents WHERE id = ? AND uploaded_by = ?', (doc_id, client_id)).fetchone()
-    if doc:
-        try:
-            gdrive.delete_file(doc['filename'])
-            conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
-            conn.commit()
-            flash('Document deleted successfully.', 'success')
-        except Exception as e:
-            flash(f"Error deleting document: {e}", 'danger')
-    else:
-        flash('Document not found or you do not have permission to delete it.', 'danger')
+    with conn.cursor() as c:
+        c.execute('SELECT filename, display_name FROM documents WHERE id = %s AND uploaded_by = %s', (doc_id, client_id))
+        doc = c.fetchone()
+        if doc:
+            try:
+                gdrive.delete_file(doc['filename'])
+                c.execute('DELETE FROM documents WHERE id = %s', (doc_id,))
+                conn.commit()
+                flash('Document deleted successfully.', 'success')
+            except Exception as e:
+                flash(f"Error deleting document: {e}", 'danger')
+        else:
+            flash('Document not found or you do not have permission to delete it.', 'danger')
     conn.close()
     return redirect(url_for('client_documents'))
 
@@ -555,12 +638,17 @@ def handle_chat():
     client_id = None
     if api_key:
         conn = get_db_connection()
-        client_row = conn.execute('SELECT client_id FROM api_keys WHERE api_key = ?', (api_key,)).fetchone()
+        with conn.cursor() as c:
+            c.execute('SELECT client_id FROM api_keys WHERE api_key = %s', (api_key,))
+            client_row = c.fetchone()
         if client_row:
             client_id = client_row['client_id']
         conn.close()
 
+    # --- CONTEXT ASSEMBLY (Now much smarter) ---
     context_blocks = []
+    
+    # 1. User-provided context (highest priority)
     if 'document' in request.files and request.files['document'].filename != '':
         file = request.files['document']
         if file and allowed_file(file.filename):
@@ -581,11 +669,12 @@ def handle_chat():
         if page_content: 
             context_blocks.append(f"--- START Web Page Content (URL: {url}) ---\n{page_content}\n--- END Web Page Content ---")
 
-    admin_kb, client_kb = get_knowledge_base_content(client_id)
-    if client_kb: 
-        context_blocks.append(f"--- START Client-Specific Knowledge Base ---\n{client_kb}\n--- END Client-Specific Knowledge Base ---")
-    if admin_kb: 
-        context_blocks.append(f"--- START Global Knowledge Base ---\n{admin_kb}\n--- END Global Knowledge Base ---")
+    # 2. Knowledge Base context (now intelligently filtered)
+    # FIX: Call the new smart function
+    knowledge_base_context = get_smart_knowledge_base_content(query, client_id)
+    if knowledge_base_context:
+        context_blocks.append(knowledge_base_context)
+
     full_context = "\n\n".join(context_blocks)
 
     try:
@@ -635,12 +724,18 @@ QUESTION:
         ai_response_text = response['message']['content']
         html_response = markdown.markdown(ai_response_text)
         response_id = str(uuid.uuid4())
-        with sqlite3.connect(DATABASE) as conn:
-            conn.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (?, ?, ?, ?, ?)", (query, ai_response_text, datetime.now().isoformat(), response_id, duration))
-            conn.commit()
-        conn_glossary = get_db_connection()
-        glossary_terms = conn_glossary.execute('SELECT term, definition FROM glossary').fetchall()
-        conn_glossary.close()
+        
+        # FIX: Use PostgreSQL connection
+        conn = get_db_connection()
+        with conn.cursor() as c:
+            c.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds) VALUES (%s, %s, %s, %s, %s)", (query, ai_response_text, datetime.now(), response_id, duration))
+        conn.commit()
+        
+        with conn.cursor() as c:
+            c.execute('SELECT term, definition FROM glossary')
+            glossary_terms = c.fetchall()
+        conn.close()
+        
         glossary_dict = {term['term']: term['definition'] for term in glossary_terms}
         return jsonify({'response': html_response, 'response_id': response_id, 'duration': f"{duration:.2f}", 'glossary': glossary_dict})
     except Exception as e:
@@ -658,12 +753,16 @@ def handle_feedback():
             return jsonify({'error': 'Score and response ID are required.'}), 400
         score = int(score_str)
         comment = comment_text if comment_text else ("Liked" if score == 1 else "Disliked")
-        with sqlite3.connect(DATABASE) as conn:
-            c = conn.cursor()
-            c.execute("UPDATE interactions SET feedback_score = ?, feedback_comment = ? WHERE response_id = ?", (score, comment, response_id))
-            conn.commit()
+        
+        # FIX: Use PostgreSQL connection
+        conn = get_db_connection()
+        with conn.cursor() as c:
+            c.execute("UPDATE interactions SET feedback_score = %s, feedback_comment = %s WHERE response_id = %s", (score, comment, response_id))
             if c.rowcount == 0:
+                conn.close()
                 return jsonify({'error': 'Invalid response ID.'}), 404
+        conn.commit()
+        conn.close()
         return jsonify({'status': 'success', 'message': 'Feedback received successfully!'})
     except Exception as e:
         traceback.print_exc()
@@ -673,8 +772,11 @@ def handle_feedback():
 @login_required(role="admin")
 def admin_analytics_export():
     conn = get_db_connection()
-    interactions = conn.execute('SELECT * FROM interactions ORDER BY timestamp DESC').fetchall()
+    with conn.cursor() as c:
+        c.execute('SELECT * FROM interactions ORDER BY timestamp DESC')
+        interactions = c.fetchall()
     conn.close()
+    
     output = io.StringIO()
     writer = csv.writer(output)
     header = ['ID', 'User Query', 'AI Response', 'Timestamp', 'Feedback Score (1=Like, -1=Dislike)', 'Feedback Comment', 'Response ID', 'Response Time (s)']
@@ -684,7 +786,39 @@ def admin_analytics_export():
     output.seek(0)
     return Response(output, mimetype="text/csv", headers={"Content-Disposition": f"attachment;filename=policy_insight_interactions_{datetime.now().strftime('%Y-%m-%d')}.csv"})
 
+@app.route('/documents/view/<int:doc_id>')
+@login_required()
+def view_document(doc_id):
+    user_id = session['user_id']
+    role = session['role']
+    conn = get_db_connection()
+    with conn.cursor() as c:
+        if role == 'admin':
+            c.execute("SELECT * FROM documents WHERE id = %s", (doc_id,))
+        else:
+            c.execute("SELECT * FROM documents WHERE id = %s AND uploaded_by = %s", (doc_id, user_id))
+        doc = c.fetchone()
+    conn.close()
+
+    if not doc:
+        return jsonify({'error': 'Document not found or permission denied.'}), 404
+
+    try:
+        file_stream = gdrive.download_file(doc['filename'])
+        content = ""
+        if doc['filetype'] == 'pdf':
+            content = extract_text_from_pdf(file_stream)
+        elif doc['filetype'] == 'docx':
+            content = extract_text_from_docx(file_stream)
+        
+        return jsonify({'display_name': doc['display_name'], 'content': content})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to read document from storage: {e}'}), 500
+
 if __name__ == "__main__":
     init_db()
     init_settings()
-    app.run(debug=True, port=5000)
+    # FIX: Use HOST='0.0.0.0' for Render deployments
+    app.run(debug=True, host='0.0.0.0', port=5000)
+# --- END OF FILE index.py ---
