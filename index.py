@@ -926,36 +926,6 @@ def admin_analytics_export():
     return Response(output, mimetype="text/csv", headers={"Content-Disposition": f"attachment;filename=policy_insight_interactions_{datetime.now().strftime('%Y-%m-%d')}.csv"})
 
 
-@app.route('/documents/view/<int:doc_id>')
-@login_required()
-def view_document(doc_id):
-    user_id = session['user_id']
-    role = session['role']
-    conn = get_db_connection()
-    with conn.cursor() as c:
-        if role == 'admin':
-            c.execute("SELECT * FROM documents WHERE id = %s", (doc_id,))
-        else:
-            c.execute(
-                "SELECT * FROM documents WHERE id = %s AND uploaded_by = %s", (doc_id, user_id))
-        doc = c.fetchone()
-    conn.close()
-
-    if not doc:
-        return jsonify({'error': 'Document not found or permission denied.'}), 404
-
-    try:
-        file_stream = gdrive.download_file(doc['filename'])
-        content = ""
-        if doc['filetype'] == 'pdf':
-            content = extract_text_from_pdf(file_stream)
-        elif doc['filetype'] == 'docx':
-            content = extract_text_from_docx(file_stream)
-
-        return jsonify({'display_name': doc['display_name'], 'content': content})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': f'Failed to read document from storage: {e}'}), 500
 
 
 @app.route('/documents/view/<int:doc_id>')
