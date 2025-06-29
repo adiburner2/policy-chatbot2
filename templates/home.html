@@ -1,18 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Policy Insight Chatbot</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1>Policy Insight Chatbot</h1>
-        <p>Welcome to the Policy Insight Chatbot system. Choose your role:</p>
-        <a href="/login" class="btn btn-primary">Login (Admin/Client)</a>
-        <a href="/chat" class="btn btn-secondary">Guest Chat</a>
+<!-- START OF templates/home.html -->
+{% extends "public_layout.html" %}
+
+{% block title %}Welcome - Lumon Industries{% endblock %}
+
+{% block content %}
+    <!-- REPLACE WITH LUMON HERO IMAGE -->
+    <div class="text-center mb-5">
+        <img src="https://i.imgur.com/uG2G8O9.png" alt="Lumon Industries Terminal" style="max-width: 100%; border: 1px solid var(--lumon-border);">
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+
+    <h1>Welcome to a Better Work/Life Balance.</h1>
+    <p>
+        At Lumon Industries, we believe that the key to a happy life is a clear separation between your professional and personal selves. Our revolutionary technology empowers you to achieve true focus at work, free from the distractions of the outside world, and to enjoy your personal time without the burdens of your career. We are more than a company; we are a family, guided by the principles of our visionary founder, Kier Eagan.
+    </p>
+
+    <h2>The Severance Procedure</h2>
+    <p>
+        The cornerstone of our philosophy is the Severance Procedure, a safe, simple, and reversible medical procedure that bifurcates your memory. When you are at work, you will have no recollection of your personal life, and when you leave, you will have no memory of your work. This creates two distinct, purposeful individuals: your "innie," dedicated to the important work we do at Lumon, and your "outie," free to live life to its fullest.
+    </p>
+    <ul>
+        <li><strong>Enhanced Productivity:</strong> Achieve unparalleled focus and efficiency.</li>
+        <li><strong>Total Privacy:</strong> Your personal life remains completely separate and secure.</li>
+        <li><strong>Reduced Stress:</strong> Leave work-related anxieties at the office, permanently.</li>
+    </ul>
+
+    <div class="text-center mt-5">
+        <a href="{{ url_for('lumon_signup') }}" class="btn btn-lumon btn-lg">Begin Your Journey. Apply Today.</a>
+    </div>
+{% endblock %}
+<!-- END OF templates/home.html -->

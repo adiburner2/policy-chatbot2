@@ -1,0 +1,34 @@
+{% extends "public_layout.html" %}
+
+{% block title %}Severance Application - Lumon Industries{% endblock %}
+
+{% block content %}
+    <h1>Severance Procedure Application</h1>
+    <p>
+        Please complete the form below to begin the application process. A Lumon representative will contact your "outie" to schedule a consultation. All information is held in the strictest confidence, in accordance with Lumon's proprietary data protocols. If you have any questions about the terms outlined in this application, please use the Policy Insight assistant.
+    </p>
+
+    <form class="lumon-form mt-5">
+        <div class="mb-4">
+            <label for="fullName" class="form-label">Full Legal Name</label>
+            <input type="text" class="form-control" id="fullName" placeholder="e.g., Mark Scout">
+        </div>
+        <div class="mb-4">
+            <label for="email" class="form-label">Contact Email Address</label>
+            <input type="email" class="form-control" id="email" placeholder="For your 'outie'">
+        </div>
+        <div class="mb-4">
+            <label for="reason" class="form-label">Reason for Seeking Severance (Optional)</label>
+            <textarea class="form-control" id="reason" rows="4"></textarea>
+        </div>
+
+        <div class="mb-4 form-check">
+            <input type="checkbox" class="form-check-input" id="termsCheck">
+            <label class="form-check-label" for="termsCheck">
+                I acknowledge that I have read and understood the <a href="#">Lumon Employee Handbook (Rev. 4.1)</a> and agree to the irreversible nature of work-time memories created post-procedure. I consent to the creation of an "innie" consciousness that is the legal and ethical property of Lumon Industries during work hours.
+            </label>
+        </div>
+
+        <button type="submit" class="btn btn-lumon">Submit Application</button>
+    </form>
+{% endblock %}

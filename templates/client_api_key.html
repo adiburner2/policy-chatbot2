@@ -1,24 +1,5 @@
 {% extends "layout.html" %} {% block title %}API Keys - Policy Insight{%
-endblock %} {% block sidebar_links %}
-<a
-  href="{{ url_for('client_dashboard') }}"
-  class="list-group-item list-group-item-action"
->
-  <i class="fas fa-tachometer-alt"></i>Dashboard
-</a>
-<a
-  href="{{ url_for('client_api_key') }}"
-  class="list-group-item list-group-item-action active"
->
-  <i class="fas fa-key"></i>API Keys
-</a>
-<a
-  href="{{ url_for('client_documents') }}"
-  class="list-group-item list-group-item-action"
->
-  <i class="fas fa-file-alt"></i>My Documents
-</a>
-{% endblock %} {% block content %}
+endblock %} {% block content %}
 <div class="page-header">
   <div class="d-flex justify-content-between align-items-center">
     <div>

@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+    --lumon-bg: #0d1a2e;
+    --lumon-text: #c8d8f0;
+    --lumon-accent: #64ffda;
+    --lumon-accent-dark: #1f9e8a;
+    --lumon-border: #233554;
+}
+
+body {
+    background-color: var(--lumon-bg);
+    color: var(--lumon-text);
+    font-family: 'VT323', monospace;
+    font-size: 18px;
+    letter-spacing: 1px;
+    /* CRT Scanlines effect */
+    background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 2px, 3px 100%;
+}
+
+.lumon-header, .lumon-footer {
+    background-color: #0a192f;
+    border-bottom: 1px solid var(--lumon-border);
+    padding: 1rem 2rem;
+}
+
+.lumon-header .navbar-brand {
+    color: var(--lumon-accent);
+    font-size: 2.5rem;
+}
+
+.lumon-header .nav-link {
+    color: var(--lumon-text);
+    font-size: 1.2rem;
+    margin-left: 1rem;
+    border: 1px solid transparent;
+    padding: 5px 10px;
+}
+
+.lumon-header .nav-link:hover, .lumon-header .nav-link.active {
+    color: var(--lumon-accent);
+    border: 1px solid var(--lumon-accent);
+    box-shadow: 0 0 5px var(--lumon-accent);
+}
+
+.lumon-container {
+    padding: 4rem 2rem;
+    max-width: 960px;
+    margin: auto;
+}
+
+h1, h2, h3 {
+    color: var(--lumon-accent);
+    text-shadow: 0 0 5px var(--lumon-accent);
+}
+
+h1 {
+    font-size: 3rem;
+    margin-bottom: 2rem;
+}
+
+h2 {
+    font-size: 2.2rem;
+    border-bottom: 1px solid var(--lumon-border);
+    padding-bottom: 0.5rem;
+    margin-top: 2.5rem;
+}
+
+p {
+    line-height: 1.8;
+}
+
+a {
+    color: var(--lumon-accent);
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+    color: #fff;
+}
+
+/* Form Styling */
+.lumon-form .form-label {
+    color: var(--lumon-text);
+    font-size: 1.2rem;
+}
+
+.lumon-form .form-control {
+    background-color: transparent;
+    border: 1px solid var(--lumon-border);
+    color: #fff;
+    font-family: 'VT323', monospace;
+    font-size: 1.1rem;
+    border-radius: 0;
+    padding: 0.75rem;
+}
+
+.lumon-form .form-control:focus {
+    background-color: rgba(100, 255, 218, 0.1);
+    border-color: var(--lumon-accent);
+    box-shadow: 0 0 8px var(--lumon-accent);
+    outline: 0;
+    color: #fff;
+}
+
+.lumon-form .form-check-label {
+    font-size: 1rem;
+}
+
+.lumon-form .form-check-input {
+    background-color: transparent;
+    border: 1px solid var(--lumon-border);
+    border-radius: 0;
+}
+
+.lumon-form .form-check-input:checked {
+    background-color: var(--lumon-accent);
+    border-color: var(--lumon-accent);
+}
+
+.btn-lumon {
+    background-color: transparent;
+    color: var(--lumon-accent);
+    border: 1px solid var(--lumon-accent);
+    padding: 10px 25px;
+    font-size: 1.2rem;
+    border-radius: 0;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-lumon:hover {
+    background-color: var(--lumon-accent-dark);
+    color: var(--lumon-bg);
+    box-shadow: 0 0 10px var(--lumon-accent);
+}
+
+.lumon-footer {
+    border-top: 1px solid var(--lumon-border);
+    border-bottom: none;
+    text-align: center;
+    font-size: 0.9rem;
+    margin-top: 4rem;
+}
