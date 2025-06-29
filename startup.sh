@@ -1,5 +1,3 @@
-# --- START OF FILE startup.sh ---
-
 #!/bin/bash
 
 # Exit on any error
@@ -9,7 +7,7 @@ echo "Starting Policy Insight application..."
 
 # Wait for database to be ready (optional but recommended)
 echo "Checking database connection..."
-python -c "
+python3 -c "
 import sys, time, psycopg2, os
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
@@ -28,7 +26,7 @@ while attempt <= max_attempts:
 
 # Initialize database schema and settings
 echo "Initializing database schema and settings..."
-python -c "
+python3 -c "
 import index, traceback
 try:
     index.init_db()
@@ -40,7 +38,7 @@ except Exception as e:
 
 # Preload document cache
 echo "Preloading document cache..."
-python -c "
+python3 -c "
 import index, traceback
 try:
     index.preload_documents_to_cache()
@@ -50,6 +48,9 @@ except Exception as e:
 
 # Start the application with a longer timeout
 echo "Starting Gunicorn server..."
-exec gunicorn -c gunicorn.conf.py index:app
-
-# --- END OF FILE startup.sh ---
+if [ -f "gunicorn.conf.py" ]; then
+    exec gunicorn -c gunicorn.conf.py index:app
+else
+    echo "gunicorn.conf.py not found, using default configuration..."
+    exec gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 4 --timeout 30 --log-level info index:app
+fi
