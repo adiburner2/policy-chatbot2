@@ -1,9 +1,9 @@
-
 import os
 import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+# FIX: Import MediaIoBaseUpload instead of MediaFileUpload for in-memory streams
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # The ID of the Google Drive folder created and shared.
 # From the URL of the folder.
@@ -30,21 +30,17 @@ def get_drive_service():
 def upload_file(file_stream, filename, mimetype):
     """Uploads a file stream to the specified Google Drive folder."""
     service = get_drive_service()
-    media = MediaFileUpload(filename, mimetype=mimetype, resumable=True)
     file_metadata = {'name': filename, 'parents': [DRIVE_FOLDER_ID]}
     
-    # Save the stream to a temporary file to upload it
-    with open(filename, 'wb') as f:
-        f.write(file_stream.read())
+    # FIX: Use MediaIoBaseUpload to handle the in-memory file stream directly.
+    # This avoids writing a temporary file to the server's disk.
+    media = MediaIoBaseUpload(file_stream, mimetype=mimetype, resumable=True)
 
     file = service.files().create(
         body=file_metadata,
         media_body=media,
         fields='id'
     ).execute()
-    
-    # Clean up the temporary file
-    os.remove(filename)
     
     return file.get('id')
 
