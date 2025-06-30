@@ -18,8 +18,10 @@
     <header class="lumon-header">
         <nav class="navbar navbar-expand">
             <div class="container-fluid">
-                <!-- REPLACE WITH LUMON LOGO IMAGE -->
-                <a class="navbar-brand" href="{{ url_for('home') }}">LUMON INDUSTRIES</a>
+                <!-- Contextual page text instead of logo -->
+                <a class="navbar-brand" href="{{ url_for('home') }}">
+                    {% block page_context %}Apply for Severance{% endblock %}
+                </a>
                 <div class="collapse navbar-collapse">
                     <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
                         <li class="nav-item">

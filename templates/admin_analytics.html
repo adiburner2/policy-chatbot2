@@ -28,7 +28,6 @@ sidebar_links %}
 {% endblock %} {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2>Analytics & Reports</h2>
-  <!-- This button is a placeholder for future functionality -->
   <a href="{{ url_for('admin_analytics_export') }}" class="btn btn-success">
     <i class="fas fa-file-download"></i> Export to CSV
   </a>
@@ -76,7 +75,6 @@ sidebar_links %}
         <i class="fas fa-tags"></i> Popular Query Terms
       </div>
       <div class="card-body">
-        <!-- FIX: This is now populated dynamically from the backend -->
         {% for term in analytics.popular_terms %}
         <span class="badge bg-secondary fs-6 me-1 mb-1">{{ term }}</span>
         {% else %}
@@ -105,12 +103,11 @@ sidebar_links %}
           {% for interaction in interactions %}
           <tr>
             <td>
-              <!-- FIX: Handle both string and datetime objects -->
               {% if interaction['timestamp'] %}
-                {% if interaction['timestamp'].__class__.__name__ == 'datetime' %}
-                  {{ interaction['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}
-                {% else %}
+                {% if interaction['timestamp'] is string %}
                   {{ interaction['timestamp'] }}
+                {% else %}
+                  {{ interaction['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}
                 {% endif %}
               {% else %}
                 N/A

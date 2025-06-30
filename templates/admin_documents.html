@@ -1,10 +1,32 @@
-{% for doc in documents %}
+{% extends "layout.html" %}
+{% block title %}Manage Documents{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Manage Global Documents</h2>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+    <i class="fas fa-upload me-2"></i>Upload Document
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-header"><h5 class="mb-0">Global Document Library</h5></div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Type</th>
+            <th>Size (KB)</th>
+            <th>Upload Date</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for doc in documents %}
           <tr>
             <td>
-              <i
-                class="fas fa-file-{{ 'pdf' if doc['filetype'] == 'pdf' else 'word' }} me-2 text-secondary"
-              ></i
-              >{{ doc['display_name'] }}
+              <i class="fas fa-file-{{ 'pdf' if doc['filetype'] == 'pdf' else 'word' }} me-2 text-secondary"></i>{{ doc['display_name'] }}
             </td>
             <td>
               <span class="badge bg-light text-dark">{{ doc['filetype'].upper() }}</span>
@@ -13,34 +35,35 @@
               {{ '%.1f'|format(doc['filesize'] / 1024) }}
             </td>
             <td>
-              {% if doc['upload_timestamp'] is string %} 
-                {{ doc['upload_timestamp'] }} 
-              {% else %} 
-                {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }} 
+              {% if doc['upload_timestamp'] %}
+                {% if doc['upload_timestamp'] is string %}
+                  {{ doc['upload_timestamp'].split(' ')[0] }}
+                {% else %}
+                  {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}
+                {% endif %}
+              {% else %}
+                N/A
               {% endif %}
             </td>
             <td class="text-end">
-              <button
-                class="btn btn-sm btn-outline-primary view-doc-btn"
-                data-doc-id="{{ doc['id'] }}"
-                data-bs-toggle="modal"
-                data-bs-target="#viewDocModal"
-              >
+              <button class="btn btn-sm btn-outline-primary view-doc-btn" data-doc-id="{{ doc['id'] }}" data-bs-toggle="modal" data-bs-target="#viewDocModal">
                 <i class="fas fa-eye"></i> View
               </button>
-              <form
-                action="{{ url_for('admin_delete_document', doc_id=doc['id']) }}"
-                method="post"
-                class="d-inline"
-              >
-                <button
-                  type="submit"
-                  class="btn btn-sm btn-outline-danger"
-                  onclick="return confirm('Are you sure you want to delete this document? This cannot be undone.');"
-                >
+              <form action="{{ url_for('admin_delete_document', doc_id=doc['id']) }}" method="post" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this document? This cannot be undone.');">
                   <i class="fas fa-trash"></i> Delete
                 </button>
               </form>
             </td>
           </tr>
           {% else %}
+          <tr>
+            <td colspan="5" class="text-center">No global documents have been uploaded.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
