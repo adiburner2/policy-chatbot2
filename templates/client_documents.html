@@ -55,15 +55,10 @@ endblock %} {% block content %}
             </td>
             <td>
               <span class="text-muted">
-                {% if doc['upload_timestamp'] %}
-                  {% if doc['upload_timestamp'] is string %}
-                    {{ doc['upload_timestamp'].split(' ')[0] }}
-                  {% else %}
-                    {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}
-                  {% endif %}
-                {% else %}
-                  N/A
-                {% endif %}
+                {% if doc['upload_timestamp'] %} {% if doc['upload_timestamp']
+                is string %} {{ doc['upload_timestamp'].split(' ')[0] }} {% else
+                %} {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }} {% endif
+                %} {% else %} N/A {% endif %}
               </span>
             </td>
             <td class="text-end">
@@ -303,11 +298,11 @@ endblock %} {% block content %}
   function escapeHtml(text) {
     if (typeof text !== "string") return "";
     const map = {
-      "&": "&",
-      "<": "<",
-      ">": ">",
-      '"': """,
-      "'": "'",
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
     };
     return text.replace(/[&<>"']/g, function (m) {
       return map[m];

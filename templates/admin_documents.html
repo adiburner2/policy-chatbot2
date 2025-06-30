@@ -145,7 +145,7 @@
           const data = await response.json();
           if (data.error) throw new Error(data.error);
           
-          modalTitle.textContent = escapeHtml(data.display_name);
+          modalTitle.textContent = data.display_name;
           modalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word; font-family: inherit;">${escapeHtml(data.content)}</pre>`;
         } catch (error) {
           console.error("Error loading document:", error);
@@ -156,16 +156,16 @@
     }
   });
 
-  function escapeHtml(text) {
-    if (typeof text !== "string") return "";
-    const map = {
-      "&": "&",
-      "<": "<",
-      ">": ">",
-      '"': """,
-      "'": "'",
-    };
-    return text.replace(/[&<>"']/g, function (m) { return map[m]; });
-  }
+ function escapeHtml(text) {
+  if (typeof text !== "string") return "";
+  const map = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  };
+  return text.replace(/[&<>"']/g, function (m) { return map[m]; });
+}
 </script>
 {% endblock %}
