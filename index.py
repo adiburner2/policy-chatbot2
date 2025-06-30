@@ -1,4 +1,3 @@
-
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, Response
 from functools import wraps
 import os
@@ -120,7 +119,7 @@ def get_smart_knowledge_base_content(query, client_id=None):
     if not keywords: return ""
 
     conn = get_db_connection()
-    query_str = "SELECT id, display_name, content, uploaded_by FROM documents WHERE uploaded_by = 1"
+    query_str = "SELECT content FROM documents WHERE uploaded_by = 1"
     params = ()
     if client_id:
         query_str += " OR uploaded_by = ?"
@@ -130,21 +129,25 @@ def get_smart_knowledge_base_content(query, client_id=None):
     conn.close()
     
     relevant_docs = []
+    MAX_CHARS_PER_DOC = 4000  # Limit context from each document to prevent OOM
     for doc in all_potential_docs:
         content = doc['content']
-        score = sum(1 for keyword in keywords if keyword in content.lower())
+        content_lower = content.lower()
+        score = sum(1 for keyword in keywords if keyword in content_lower)
         if score > 0:
-            doc_type = "Client-Specific" if doc['uploaded_by'] == client_id else "Global"
-            formatted_text = f"--- Document: {doc['display_name']} (Type: {doc_type}) ---\n{content}"
-            relevant_docs.append({'score': score, 'text': formatted_text})
+            # Add truncated content directly, without any headers
+            truncated_content = content[:MAX_CHARS_PER_DOC]
+            if len(content) > MAX_CHARS_PER_DOC:
+                truncated_content += "..."
+            relevant_docs.append({'score': score, 'text': truncated_content})
 
     relevant_docs.sort(key=lambda x: x['score'], reverse=True)
     TOP_N_DOCS = 3
     top_docs = relevant_docs[:TOP_N_DOCS]
     if not top_docs: return ""
     
-    final_context = "\n\n".join([doc['text'] for doc in top_docs])
-    return f"--- START Relevant Knowledge Base Documents ---\n{final_context}\n--- END Relevant Knowledge Base Documents ---"
+    # Return a clean concatenation of the most relevant document snippets
+    return "\n\n".join([doc['text'] for doc in top_docs])
 
 def get_settings():
     conn = get_db_connection()
@@ -315,12 +318,12 @@ def handle_chat():
                 guest_doc_content = ""
                 if file.filename.lower().endswith('.pdf'): guest_doc_content = extract_text_from_pdf(file.stream)
                 elif file.filename.lower().endswith('.docx'): guest_doc_content = extract_text_from_docx(file.stream)
-                if guest_doc_content: context_blocks.append(f"--- START User Uploaded Document (Filename: {file.filename}) ---\n{guest_doc_content}\n--- END User Uploaded Document ---")
+                if guest_doc_content: context_blocks.append(guest_doc_content)
             except Exception as e: return jsonify({'error': f'Error processing file: {str(e)}'}), 500
         else: return jsonify({'error': 'Invalid file type.'}), 400
     elif url:
         page_content = extract_text_from_url(url) or ""
-        if page_content: context_blocks.append(f"--- START Web Page Content (URL: {url}) ---\n{page_content}\n--- END Web Page Content ---")
+        if page_content: context_blocks.append(page_content)
 
     knowledge_base_context = get_smart_knowledge_base_content(query, client_id)
     if knowledge_base_context: context_blocks.append(knowledge_base_context)
@@ -333,8 +336,8 @@ def handle_chat():
 **Rules of Engagement:**
 1.  **Strict Context Adherence:** Your answers MUST be based exclusively on the information within the provided CONTEXT block. Do not use any external knowledge.
 2.  **Handling "Not Found":** If the answer is not in the context, you MUST reply with the single sentence: `I cannot find an answer to your question in the provided document(s).` Do not apologize or elaborate.
-3.  **Response Style:** Provide direct, concise answers. Use simple markdown (like **bolding** or lists) for clarity. Act as if you know the information directly; do not mention the context blocks, documents, or that you are an AI."""
-            user_message_content = f"CONTEXT:\n{full_context[:12000]}\n\n---\nBased on the rules and context above, answer the question.\n\nQUESTION:\n\"{query}\""
+3.  **Response Style:** Provide direct, concise answers. Act as if you know the information directly. Crucially, DO NOT mention the context, the documents, that you are an AI, or that your knowledge is limited to the provided text."""
+            user_message_content = f"CONTEXT:\n{full_context[:12000]}\n\n---\nBased *only* on the context above, answer the following question.\n\nQUESTION: {query}"
         else:
             system_prompt = """You are 'Policy Insight', an AI assistant for the fictional company Lumon Industries from *Severance*. Explain general data privacy and terms of service concepts in a formal, slightly cryptic tone. Do NOT provide legal advice or mention you are an AI."""
             user_message_content = f"As a policy expert for Lumon Industries, provide a clear and simple explanation for: '{query}'"

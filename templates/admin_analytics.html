@@ -105,9 +105,13 @@ sidebar_links %}
           {% for interaction in interactions %}
           <tr>
             <td>
-              <!-- FIX: Format datetime object properly -->
+              <!-- FIX: Handle both string and datetime objects -->
               {% if interaction['timestamp'] %}
-                {{ interaction['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}
+                {% if interaction['timestamp'].__class__.__name__ == 'datetime' %}
+                  {{ interaction['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}
+                {% else %}
+                  {{ interaction['timestamp'] }}
+                {% endif %}
               {% else %}
                 N/A
               {% endif %}
