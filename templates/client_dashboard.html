@@ -31,16 +31,14 @@ endblock %} {% block content %}
   </div>
   <div class="col-md-3">
     <div class="stat-card">
-      <!-- FIX: Use the stats dictionary passed from the backend -->
       <div class="stat-number">{{ stats.api_key_count }}</div>
       <div class="stat-label">Active API Keys</div>
     </div>
   </div>
 </div>
 
-<!-- Quick Actions -->
-<div class="row g-4">
-    <!-- FIX: Change layout to make space for the chart -->
+<!-- Analytics and Actions -->
+<div class="row g-4 mb-4">
     <div class="col-lg-7">
         <div class="card h-100">
             <div class="card-header">
@@ -77,7 +75,9 @@ endblock %} {% block content %}
     </div>
 </div>
 
-  <div class="col-lg-4">
+<!-- Getting Started Guide -->
+<div class="row g-4">
+  <div class="col-lg-12">
     <div class="card">
       <div class="card-header">
         <h5 class="mb-0">Getting Started</h5>

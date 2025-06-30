@@ -66,15 +66,20 @@ block content %}
             class="list-group-item d-flex justify-content-between align-items-center"
           >
             <div>
-              <!-- FIX: Use dictionary keys instead of indexes -->
               <strong>{{ doc['display_name'] }}</strong><br />
               <small class="text-muted"
-                >Uploaded on {% if doc['upload_timestamp'] is string %} {{
-                doc['upload_timestamp'] }} {% else %} {{
-                doc['upload_timestamp'].strftime('%Y-%m-%d') }} {% endif %}
+                >Uploaded on 
+                {% if doc['upload_timestamp'] %}
+                  {% if doc['upload_timestamp'] is string %}
+                    {{ doc['upload_timestamp'].split(' ')[0] }}
+                  {% else %}
+                    {{ doc['upload_timestamp'].strftime('%Y-%m-%d') }}
+                  {% endif %}
+                {% else %}
+                  N/A
+                {% endif %}
               </small>
             </div>
-            <!-- FIX: Use the new view document modal -->
             <button
               class="btn btn-sm btn-outline-secondary view-doc-btn"
               data-doc-id="{{ doc['id'] }}"
