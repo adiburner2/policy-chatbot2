@@ -60,9 +60,11 @@ endblock %} {% block content %}
             </td>
             <td>
               <!-- FIX: Use strftime to format the datetime object -->
-              <span class="text-muted"
-                >{{ key['issuance_timestamp'].strftime('%Y-%m-%d') }}</span
-              >
+              <span class="text-muted">
+                {% if key['issuance_timestamp'] is string %} {{
+                key['issuance_timestamp'] }} {% else %} {{
+                key['issuance_timestamp'].strftime('%Y-%m-%d') }} {% endif %}
+              </span>
             </td>
             <td class="text-end">
               <form
