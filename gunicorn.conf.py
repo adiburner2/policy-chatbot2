@@ -9,8 +9,11 @@ backlog = 2048
 workers = multiprocessing.cpu_count() * 2 + 1
 worker_class = "sync"
 worker_connections = 1000
-timeout = 30
+
+# INCREASED TIMEOUTS for AI model calls
+timeout = 120  # Increased from 30 to 120 seconds
 keepalive = 2
+graceful_timeout = 30  # Time to wait for workers to finish during shutdown
 
 # Restart workers after this many requests, to prevent memory leaks
 max_requests = 1000

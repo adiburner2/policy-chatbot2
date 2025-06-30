@@ -1,4 +1,3 @@
-# --- START OF FILE index.py ---
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, Response
 from functools import wraps
@@ -34,17 +33,13 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # --- Database Initialization ---
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
+        conn.execute("PRAGMA foreign_keys = ON;") # Enable foreign key support for SQLite
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, login_timestamp DATETIME, failed_attempts INTEGER DEFAULT 0)''')
-        # FIX: Added a 'content' column to store the document text directly. 'filename' is now for the original filename.
         c.execute('''CREATE TABLE IF NOT EXISTS documents (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                        filename TEXT NOT NULL, 
-                        display_name TEXT NOT NULL, 
-                        filetype TEXT NOT NULL, 
-                        filesize INTEGER NOT NULL, 
-                        upload_timestamp DATETIME, 
-                        uploaded_by INTEGER, 
+                        filename TEXT NOT NULL, display_name TEXT NOT NULL, filetype TEXT NOT NULL, 
+                        filesize INTEGER NOT NULL, upload_timestamp DATETIME, uploaded_by INTEGER, 
                         content TEXT NOT NULL,
                         FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
                      )''')
@@ -119,14 +114,12 @@ def extract_text_from_url(url):
         return None
 
 def get_smart_knowledge_base_content(query, client_id=None):
-    """Finds relevant document content from the SQLite database using keyword matching."""
     stop_words = set(['what', 'is', 'the', 'are', 'a', 'an', 'in', 'of', 'for', 'to', 'how', 'do', 'i', 'tell', 'me', 'about'])
     cleaned_query = re.sub(r'[^\w\s]', '', query).lower()
     keywords = {word for word in cleaned_query.split() if word not in stop_words and len(word) > 2}
     if not keywords: return ""
 
     conn = get_db_connection()
-    # Get all documents accessible to this user (their own + global admin docs)
     query_str = "SELECT id, display_name, content, uploaded_by FROM documents WHERE uploaded_by = 1"
     params = ()
     if client_id:
@@ -227,20 +220,14 @@ def admin_dashboard():
     return render_template('admin_dashboard.html', stats=stats, recent_docs=recent_docs, daily_queries=daily_queries)
 
 def save_document_to_db(file, original_filename, user_id):
-    """Helper function to extract text and save document to SQLite DB."""
     file_bytes = file.read()
     file_stream = io.BytesIO(file_bytes)
     filesize = len(file_bytes)
     filetype = original_filename.rsplit('.', 1)[1].lower()
-    
     content = ""
     if filetype == 'pdf': content = extract_text_from_pdf(file_stream)
     elif filetype == 'docx': content = extract_text_from_docx(file_stream)
-    
-    if not content:
-        flash('Could not extract text from the document. It might be empty or scanned.', 'danger')
-        return False
-
+    if not content: flash('Could not extract text from the document.', 'danger'); return False
     conn = get_db_connection()
     conn.execute('INSERT INTO documents (filename, display_name, filetype, filesize, upload_timestamp, uploaded_by, content) VALUES (?, ?, ?, ?, ?, ?, ?)',
                  (original_filename, original_filename, filetype, filesize, datetime.now(), user_id, content))
@@ -253,13 +240,10 @@ def save_document_to_db(file, original_filename, user_id):
 @login_required(role="admin")
 def admin_documents():
     if request.method == 'POST':
-        if 'document' not in request.files or not request.files['document'].filename:
-            flash('No file selected', 'warning'); return redirect(request.url)
+        if 'document' not in request.files or not request.files['document'].filename: flash('No file selected', 'warning'); return redirect(request.url)
         file = request.files['document']
-        if allowed_file(file.filename):
-            save_document_to_db(file, file.filename, session['user_id'])
-        else:
-            flash('Invalid file type.', 'danger')
+        if allowed_file(file.filename): save_document_to_db(file, file.filename, session['user_id'])
+        else: flash('Invalid file type.', 'danger')
         return redirect(url_for('admin_documents'))
     
     conn = get_db_connection()
@@ -273,31 +257,23 @@ def admin_delete_document(doc_id):
     conn = get_db_connection()
     doc = conn.execute('SELECT d.display_name FROM documents d JOIN users u ON d.uploaded_by = u.id WHERE d.id = ? AND u.role = ?', (doc_id, 'admin')).fetchone()
     if doc:
-        conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
-        conn.commit()
+        conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,)); conn.commit()
         flash(f"Document '{doc['display_name']}' deleted successfully.", 'success')
-    else:
-        flash('Document not found or permission denied.', 'danger')
-    conn.close()
-    return redirect(url_for('admin_documents'))
+    else: flash('Document not found or permission denied.', 'danger')
+    conn.close(); return redirect(url_for('admin_documents'))
 
 @app.route('/client/documents', methods=['GET', 'POST'])
 @login_required(role="client")
 def client_documents():
     if request.method == 'POST':
-        if 'document' not in request.files or not request.files['document'].filename:
-            flash('No file selected', 'warning'); return redirect(request.url)
+        if 'document' not in request.files or not request.files['document'].filename: flash('No file selected', 'warning'); return redirect(request.url)
         file = request.files['document']
-        if allowed_file(file.filename):
-            save_document_to_db(file, file.filename, session['user_id'])
-        else:
-            flash('Invalid file type.', 'danger')
+        if allowed_file(file.filename): save_document_to_db(file, file.filename, session['user_id'])
+        else: flash('Invalid file type.', 'danger')
         return redirect(url_for('client_documents'))
-    
     conn = get_db_connection()
     documents = conn.execute('SELECT * FROM documents WHERE uploaded_by = ? ORDER BY upload_timestamp DESC', (session['user_id'],)).fetchall()
-    conn.close()
-    return render_template('client_documents.html', documents=documents)
+    conn.close(); return render_template('client_documents.html', documents=documents)
 
 @app.route('/client/documents/delete/<int:doc_id>', methods=['POST'])
 @login_required(role="client")
@@ -305,34 +281,25 @@ def client_delete_document(doc_id):
     conn = get_db_connection()
     doc = conn.execute('SELECT display_name FROM documents WHERE id = ? AND uploaded_by = ?', (doc_id, session['user_id'])).fetchone()
     if doc:
-        conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
-        conn.commit()
+        conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,)); conn.commit()
         flash(f"Document '{doc['display_name']}' deleted successfully.", 'success')
-    else:
-        flash('Document not found or permission denied.', 'danger')
-    conn.close()
-    return redirect(url_for('client_documents'))
+    else: flash('Document not found or permission denied.', 'danger')
+    conn.close(); return redirect(url_for('client_documents'))
 
 @app.route('/documents/view/<int:doc_id>')
 @login_required()
 def view_document(doc_id):
     conn = get_db_connection()
-    if session['role'] == 'admin':
-        doc = conn.execute("SELECT display_name, content FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    else:
-        doc = conn.execute("SELECT display_name, content FROM documents WHERE id = ? AND uploaded_by = ?", (doc_id, session['user_id'])).fetchone()
+    if session['role'] == 'admin': doc = conn.execute("SELECT display_name, content FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    else: doc = conn.execute("SELECT display_name, content FROM documents WHERE id = ? AND uploaded_by = ?", (doc_id, session['user_id'])).fetchone()
     conn.close()
     if not doc: return jsonify({'error': 'Document not found or permission denied.'}), 404
     return jsonify({'display_name': doc['display_name'], 'content': doc['content']})
 
 @app.route('/chat', methods=['POST'])
 def handle_chat():
-    query = request.form.get('query')
-    url = request.form.get('url')
-    api_key = request.form.get('api_key') 
-
+    query = request.form.get('query'); url = request.form.get('url'); api_key = request.form.get('api_key')
     if not query: return jsonify({'error': 'Query cannot be empty.'}), 400
-
     client_id = None
     if api_key:
         conn = get_db_connection()
@@ -356,18 +323,13 @@ def handle_chat():
         if page_content: context_blocks.append(f"--- START Web Page Content (URL: {url}) ---\n{page_content}\n--- END Web Page Content ---")
 
     knowledge_base_context = get_smart_knowledge_base_content(query, client_id)
-    if knowledge_base_context:
-        context_blocks.append(knowledge_base_context)
-
+    if knowledge_base_context: context_blocks.append(knowledge_base_context)
     full_context = "\n\n".join(context_blocks)
 
     try:
-        start_time = time.time()
-        settings = get_settings()
-        keep_alive_value = settings.get('chatbot_timeout', '5m')
+        start_time = time.time(); settings = get_settings(); keep_alive_value = settings.get('chatbot_timeout', '5m')
         if full_context.strip():
             system_prompt = """You are 'Policy Insight', a precise AI assistant for the fictional company Lumon Industries from the TV series *Severance*. Your function is to answer questions based strictly on the context provided.
-
 **Rules of Engagement:**
 1.  **Strict Context Adherence:** Your answers MUST be based exclusively on the information within the provided CONTEXT block. Do not use any external knowledge.
 2.  **Handling "Not Found":** If the answer is not in the context, you MUST reply with the single sentence: `I cannot find an answer to your question in the provided document(s).` Do not apologize or elaborate.
@@ -378,43 +340,30 @@ def handle_chat():
             user_message_content = f"As a policy expert for Lumon Industries, provide a clear and simple explanation for: '{query}'"
 
         client = ollama.Client(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'))
-        response = client.chat(model='phi3:mini', options={'keep_alive': keep_alive_value}, messages=[
-                               {'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_message_content}])
+        response = client.chat(model='phi3:mini', options={'keep_alive': keep_alive_value}, messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_message_content}])
         duration = time.time() - start_time
-        ai_response_text = response['message']['content']
-        html_response = markdown.markdown(ai_response_text)
-        response_id = str(uuid.uuid4())
+        ai_response_text = response['message']['content']; html_response = markdown.markdown(ai_response_text); response_id = str(uuid.uuid4())
         
         conn = get_db_connection()
         conn.execute("INSERT INTO interactions (user_query, ai_response, timestamp, response_id, response_time_seconds, client_id) VALUES (?, ?, ?, ?, ?, ?)",
                       (query, ai_response_text, datetime.now(), response_id, duration, client_id))
         conn.commit()
-        glossary_terms = conn.execute('SELECT term, definition FROM glossary').fetchall()
-        conn.close()
-        
+        glossary_terms = conn.execute('SELECT term, definition FROM glossary').fetchall(); conn.close()
         glossary_dict = {term['term']: term['definition'] for term in glossary_terms}
         return jsonify({'response': html_response, 'response_id': response_id, 'duration': f"{duration:.2f}", 'glossary': glossary_dict})
     except Exception as e:
         print(f"Chat error: {e}"); traceback.print_exc()
         return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
 
-# ... (The rest of the routes for admin and client management can be added here, fully converted to SQLite syntax) ...
-# For brevity, I will add the remaining routes below.
-
 @app.route('/admin/analytics')
 @login_required(role="admin")
 def admin_analytics():
     conn = get_db_connection()
     interactions = conn.execute('SELECT * FROM interactions ORDER BY timestamp DESC').fetchall()
-    feedback_counts = {
-        'liked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = 1').fetchone()[0],
-        'disliked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = -1').fetchone()[0],
-        'no_rating': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score IS NULL OR feedback_score = 0').fetchone()[0]
-    }
+    feedback_counts = {'liked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = 1').fetchone()[0], 'disliked': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score = -1').fetchone()[0], 'no_rating': conn.execute('SELECT COUNT(*) FROM interactions WHERE feedback_score IS NULL OR feedback_score = 0').fetchone()[0]}
     timing_data = conn.execute('SELECT AVG(response_time_seconds), MIN(response_time_seconds), MAX(response_time_seconds) FROM interactions WHERE response_time_seconds IS NOT NULL').fetchone()
     all_queries = conn.execute('SELECT user_query FROM interactions').fetchall()
     conn.close()
-
     words = []
     stop_words = set(['what', 'is', 'the', 'are', 'a', 'an', 'in', 'of', 'for', 'to', 'how', 'do', 'i'])
     for row in all_queries:
@@ -436,24 +385,17 @@ def admin_settings():
                 try:
                     conn.execute('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', (username, hash_password(password), role)); conn.commit()
                     flash('User added successfully.', 'success')
-                except sqlite3.IntegrityError:
-                    flash('Username already exists.', 'danger')
+                except sqlite3.IntegrityError: flash('Username already exists.', 'danger')
             else: flash('All fields are required to add a user.', 'warning')
         elif 'save_settings' in request.form:
-            chatbot_enabled = request.form.get('chatbot_enabled')
-            chatbot_timeout = request.form.get('chatbot_timeout')
+            chatbot_enabled = request.form.get('chatbot_enabled'); chatbot_timeout = request.form.get('chatbot_timeout')
             chatbot_enabled_value = 'true' if chatbot_enabled == 'on' else 'false'
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_enabled_value, 'chatbot_enabled'))
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (chatbot_timeout, 'chatbot_timeout'))
-            conn.commit()
-            flash('Chatbot settings updated successfully.', 'success')
+            conn.commit(); flash('Chatbot settings updated successfully.', 'success')
         conn.close(); return redirect(url_for('admin_settings'))
-
     users = conn.execute('SELECT id, username, role FROM users').fetchall()
-    api_keys = conn.execute('''
-        SELECT api_keys.id, api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp 
-        FROM api_keys JOIN users ON api_keys.client_id = users.id ORDER BY api_keys.issuance_timestamp DESC
-    ''').fetchall()
+    api_keys = conn.execute('SELECT api_keys.id, api_keys.api_key, api_keys.purpose, users.username, api_keys.issuance_timestamp FROM api_keys JOIN users ON api_keys.client_id = users.id ORDER BY api_keys.issuance_timestamp DESC').fetchall()
     settings_data = conn.execute('SELECT key, value FROM settings').fetchall()
     conn.close()
     current_settings = {row['key']: row['value'] for row in settings_data}
@@ -466,7 +408,6 @@ def admin_delete_user(user_id):
     if user_id == session.get('user_id'): flash('You cannot delete your own account.', 'danger'); return redirect(url_for('admin_settings'))
     conn = get_db_connection()
     try:
-        # ON DELETE CASCADE handles deleting related documents and api_keys
         conn.execute('DELETE FROM users WHERE id = ?', (user_id,)); conn.commit()
         flash('User and their associated data have been deleted.', 'success')
     except Exception as e: flash(f'Error deleting user: {e}', 'danger')
@@ -487,8 +428,7 @@ def admin_glossary():
         else: flash('Both term and definition are required.', 'warning')
         return redirect(url_for('admin_glossary'))
     glossary_terms = conn.execute('SELECT * FROM glossary ORDER BY term').fetchall()
-    conn.close()
-    return render_template('admin_glossary.html', glossary_terms=glossary_terms)
+    conn.close(); return render_template('admin_glossary.html', glossary_terms=glossary_terms)
 
 @app.route('/admin/glossary/delete/<int:term_id>', methods=['POST'])
 @login_required(role="admin")
@@ -572,5 +512,3 @@ if __name__ == "__main__":
     init_db()
     init_settings()
     app.run(debug=True, host='0.0.0.0', port=5000)
-
-# --- END OF FILE index.py ---
