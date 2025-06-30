@@ -1,5 +1,3 @@
-# --- START OF FILE startup.sh ---
-
 #!/bin/bash
 
 # Exit on any error
@@ -9,7 +7,7 @@ echo "Starting Policy Insight application..."
 
 # Initialize database schema and settings
 echo "Initializing database schema and settings..."
-python -c "
+python3 -c "
 import index, traceback
 try:
     index.init_db()
@@ -22,5 +20,3 @@ except Exception as e:
 # Start the application with a longer timeout to handle slow LLM responses
 echo "Starting Gunicorn server..."
 exec gunicorn -c gunicorn.conf.py index:app
-
-# --- END OF FILE startup.sh ---
